@@ -77,6 +77,7 @@ Commands:
   launch [args...]       Launch one active Ghidra with JDK 21
   launch-multi [options] Launch multiple Ghidra projects and report their MCP ports
   instances [options]    List active GhidraMCP instances and TCP ports
+  projects               List projects recorded by the active Ghidra version
   bridge [args...]       Run the active GhidraMCP bridge with managed Python 3.13
   rollback               Swap to the previously active compatible pair
   help                   Show this help
@@ -689,6 +690,123 @@ command_instances() {
     print_instance_file "$instances_file"
 }
 
+ghidra_user_settings_dir() {
+    local version
+    local release_name
+    local properties="$CURRENT_LINK/ghidra/Ghidra/application.properties"
+
+    require_active_pair
+    [ -f "$properties" ] || die "Active Ghidra application metadata is missing"
+    version=$(pair_value "$CURRENT_LINK" ghidra_version)
+    release_name=$(awk -F= '$1 == "application.release.name" {print $2; exit}' "$properties")
+    [ -n "$release_name" ] || die "Active Ghidra release name is missing"
+    printf '%s/Library/ghidra/ghidra_%s_%s\n' "$HOME" "$version" "$release_name"
+}
+
+preference_value() {
+    local preferences=$1
+    local key=$2
+    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$preferences"
+}
+
+project_storage_status() {
+    local base_path=$1
+    local has_project=false
+    local has_repository=false
+
+    [ -f "$base_path.gpr" ] && has_project=true
+    [ -d "$base_path.rep" ] && has_repository=true
+    if [ "$has_project" = true ] && [ "$has_repository" = true ]; then
+        printf '%s\n' ready
+    elif [ "$has_project" = true ] || [ "$has_repository" = true ]; then
+        printf '%s\n' incomplete
+    else
+        printf '%s\n' missing
+    fi
+}
+
+command_projects() {
+    local settings_dir
+    local preferences
+    local recent_value
+    local last_opened
+    local active_instances
+    local seen_projects
+    local base_path
+    local project_file
+    local project_name
+    local storage_status
+    local last_status
+    local active_record
+    local active_port
+    local active_pid
+    local active_status
+    local base_port=${GHIDRA_MCP_BASE_PORT:-$MCP_DEFAULT_PORT}
+    local count=0
+    local recent_projects=()
+    local known_projects=()
+
+    require_command curl
+    require_command jq
+    make_temp_dir
+    settings_dir=$(ghidra_user_settings_dir)
+    preferences="$settings_dir/preferences"
+    [ -f "$preferences" ] \
+        || die "No Ghidra project registry found at $preferences. Launch Ghidra once first."
+    recent_value=$(preference_value "$preferences" RecentProjects)
+    last_opened=$(preference_value "$preferences" LastOpenedProject)
+    last_opened=${last_opened#ghidra:}
+    last_opened=${last_opened%.gpr}
+    if [ -n "$last_opened" ]; then
+        known_projects+=( "$last_opened" )
+    fi
+    if [ -n "$recent_value" ]; then
+        IFS=';' read -r -a recent_projects <<< "$recent_value"
+        known_projects+=( "${recent_projects[@]}" )
+    fi
+    if [ ${#known_projects[@]} -eq 0 ]; then
+        log "Ghidra has no recorded projects in $preferences."
+        return 0
+    fi
+
+    active_instances="$TEMP_DIR/project-active-instances"
+    seen_projects="$TEMP_DIR/project-seen"
+    validate_base_port "$base_port"
+    scan_mcp_instances "$base_port" | sort -n > "$active_instances"
+    : > "$seen_projects"
+    log "Projects known to Ghidra $(pair_value "$CURRENT_LINK" ghidra_version):"
+    for base_path in "${known_projects[@]}"; do
+        base_path=${base_path#ghidra:}
+        [ -n "$base_path" ] || continue
+        case "$base_path" in
+            *.gpr) base_path=${base_path%.gpr} ;;
+        esac
+        if grep -Fqx "$base_path" "$seen_projects"; then
+            continue
+        fi
+        printf '%s\n' "$base_path" >> "$seen_projects"
+        project_file="$base_path.gpr"
+        project_name=$(basename "$base_path")
+        storage_status=$(project_storage_status "$base_path")
+        if [ "$base_path" = "$last_opened" ]; then
+            last_status="last-opened"
+        else
+            last_status="recent"
+        fi
+        active_record=$(awk -F'\t' -v project="$project_name" '$3 == project {print $1 "\t" $2; exit}' "$active_instances")
+        if [ -n "$active_record" ]; then
+            IFS=$'\t' read -r active_port active_pid <<< "$active_record"
+            active_status="active MCP port $active_port (PID $active_pid)"
+        else
+            active_status="inactive"
+        fi
+        printf '%s | %s | %s | %s | %s\n' \
+            "$project_name" "$storage_status" "$last_status" "$active_status" "$project_file"
+        count=$((count + 1))
+    done
+    log "$count recorded projects from $preferences"
+}
+
 normalize_project_path() {
     local path=$1
     local directory
@@ -950,6 +1068,7 @@ main() {
         launch) command_launch "$@" ;;
         launch-multi) command_launch_multi "$@" ;;
         instances) command_instances "$@" ;;
+        projects) [ $# -eq 0 ] || die "projects accepts no arguments"; command_projects ;;
         bridge) command_bridge "$@" ;;
         rollback) [ $# -eq 0 ] || die "rollback accepts no arguments"; command_rollback ;;
         help|-h|--help) usage ;;

@@ -79,6 +79,8 @@ git diff --check
 - Re-run `sync` to verify idempotence.
 - Run `bridge --help` after changing bridge selection or Python runtime setup.
 - Run `instances` after changing MCP discovery, port parsing, or output.
+- Run `projects` after changing Ghidra settings discovery, preference parsing,
+  project storage validation, or active-instance matching.
 - Test `launch-multi` with two distinct disposable or existing projects after
   changing process launch, baseline exclusion, timeout, or port-range behavior.
 - Verify failure cases do not change `current`, `previous`, or the installed

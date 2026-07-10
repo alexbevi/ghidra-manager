@@ -151,6 +151,18 @@ List all currently responding instances without launching more:
 ./ghidra-manager.sh instances
 ```
 
+List the projects recorded by the active Ghidra version:
+
+```bash
+./ghidra-manager.sh projects
+```
+
+This reads Ghidra's `RecentProjects` and `LastOpenedProject` registry rather
+than searching arbitrary directories. Each result shows whether its `.gpr` and
+`.rep` storage is ready, incomplete, or missing; whether it was last opened;
+and whether it currently has a responding MCP port. Stale recent entries remain
+visible as `missing` so they can be diagnosed or removed in Ghidra.
+
 GhidraMCP automatically tries the 16-port range beginning at its configured
 port, which is `8089-8104` by default. Its bridge exposes `list_instances` and
 `connect_instance`; use those tools to select the first project, inspect it,
@@ -168,5 +180,7 @@ them unambiguously.
   in each new window, then run `./ghidra-manager.sh instances` to print ports.
 - **Custom plugin port:** pass the configured value through `--base-port` or
   set `GHIDRA_MCP_BASE_PORT` before running discovery or multi-launch.
+- **No recorded projects:** launch the managed Ghidra version once so it creates
+  its preferences registry, then open the projects you want it to remember.
 - **Update refused while Ghidra is running:** close the managed Ghidra process
   before replacing or rolling back its extension.
