@@ -14,6 +14,8 @@ TEMP_DIR=""
 GHIDRA_REPOSITORY="NationalSecurityAgency/ghidra"
 MCP_REPOSITORY="bethington/ghidra-mcp"
 GITHUB_API="https://api.github.com"
+MCP_DEFAULT_PORT=8089
+MCP_PORT_RANGE=16
 
 MCP_TAG=""
 MCP_VERSION=""
@@ -37,6 +39,7 @@ RESOLVED_EXTENSION_PATH=""
 EXTENSION_TRANSACTION_ACTIVE=false
 EXTENSION_TRANSACTION_TARGET=""
 EXTENSION_TRANSACTION_BACKUP=""
+STARTED_LAUNCH_PID=""
 
 log() {
     printf '%s\n' "$*"
@@ -69,16 +72,29 @@ usage() {
 Usage: ./ghidra-manager.sh [command]
 
 Commands:
-  sync [--dry-run]  Install or update the newest compatible stable pair (default)
-  status            Show installed and upstream versions
-  launch [args...]  Launch the active Ghidra with JDK 21
-  bridge [args...]  Run the active GhidraMCP bridge with managed Python 3.13
-  rollback          Swap to the previously active compatible pair
-  help              Show this help
+  sync [--dry-run]       Install or update the newest compatible stable pair (default)
+  status                 Show installed and upstream versions
+  launch [args...]       Launch one active Ghidra with JDK 21
+  launch-multi [options] Launch multiple Ghidra projects and report their MCP ports
+  instances [options]    List active GhidraMCP instances and TCP ports
+  bridge [args...]       Run the active GhidraMCP bridge with managed Python 3.13
+  rollback               Swap to the previously active compatible pair
+  help                   Show this help
+
+launch-multi options:
+  --count N          Number of blank Ghidra instances to launch (default: 2)
+  --timeout SECONDS  Time to wait for new MCP endpoints (default: 180)
+  --base-port PORT   Configured GhidraMCP TCP port (default: 8089)
+  PROJECT.gpr ...    Launch one instance for each project instead of --count
+
+instances options:
+  --base-port PORT   Configured GhidraMCP TCP port (default: 8089)
 
 Environment:
   GH_TOKEN           Optional GitHub API token
   GITHUB_TOKEN       Optional GitHub API token (used when GH_TOKEN is unset)
+  GHIDRA_MCP_BASE_PORT       Default base port for discovery (default: 8089)
+  GHIDRA_MCP_LAUNCH_TIMEOUT  Default multi-launch wait in seconds (default: 180)
 EOF
 }
 
@@ -586,6 +602,294 @@ command_launch() {
     exec env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" "$launcher" "$@"
 }
 
+is_positive_integer() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 0 ] ;;
+    esac
+}
+
+validate_base_port() {
+    local port=$1
+    is_positive_integer "$port" || die "Base port must be a positive integer"
+    [ "$port" -le $((65535 - MCP_PORT_RANGE + 1)) ] \
+        || die "Base port leaves no room for the $MCP_PORT_RANGE-port fallback range"
+}
+
+scan_mcp_instances() {
+    local base_port=$1
+    local port
+    local response
+    local record
+
+    for ((port = base_port; port < base_port + MCP_PORT_RANGE; port++)); do
+        response=$(curl --fail --silent --max-time 1 \
+            "http://127.0.0.1:$port/mcp/instance_info" 2>/dev/null || true)
+        [ -n "$response" ] || continue
+        record=$(printf '%s' "$response" | jq -er '
+            (if type == "object" and (.data | type) == "object" then .data else . end)
+            | select((.pid | type) == "number")
+            | [
+                (.pid | tostring),
+                ((.project // "unknown") | tostring | gsub("[\\t\\r\\n]"; " "))
+              ]
+            | @tsv
+        ' 2>/dev/null || true)
+        [ -n "$record" ] || continue
+        printf '%s\t%s\n' "$port" "$record"
+    done
+}
+
+print_instance_file() {
+    local path=$1
+    local port
+    local pid
+    local project
+
+    while IFS=$'\t' read -r port pid project; do
+        [ -n "$port" ] || continue
+        printf 'MCP port %s | PID %s | project %s | http://127.0.0.1:%s\n' \
+            "$port" "$pid" "${project:-unknown}" "$port"
+    done < "$path"
+}
+
+parse_base_port_option() {
+    local option=$1
+    local value=$2
+    [ "$option" = "--base-port" ] || return 1
+    [ -n "$value" ] || die "--base-port requires a value"
+    validate_base_port "$value"
+    printf '%s\n' "$value"
+}
+
+command_instances() {
+    local base_port=${GHIDRA_MCP_BASE_PORT:-$MCP_DEFAULT_PORT}
+    local instances_file
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --base-port)
+                [ $# -ge 2 ] || die "--base-port requires a value"
+                base_port=$(parse_base_port_option "$1" "$2")
+                shift 2
+                ;;
+            *) die "Unknown instances option: $1" ;;
+        esac
+    done
+    validate_base_port "$base_port"
+    require_command curl
+    require_command jq
+    make_temp_dir
+    instances_file="$TEMP_DIR/instances"
+    scan_mcp_instances "$base_port" | sort -n > "$instances_file"
+    if [ ! -s "$instances_file" ]; then
+        log "No GhidraMCP instances found on ports $base_port-$((base_port + MCP_PORT_RANGE - 1))."
+        return 1
+    fi
+    print_instance_file "$instances_file"
+}
+
+normalize_project_path() {
+    local path=$1
+    local directory
+    local filename
+
+    case "$path" in
+        *.gpr) ;;
+        *) die "Ghidra project must use the .gpr extension: $path" ;;
+    esac
+    [ -f "$path" ] || die "Ghidra project not found: $path"
+    directory=$(CDPATH= cd -- "$(dirname -- "$path")" && pwd)
+    filename=$(basename -- "$path")
+    printf '%s/%s\n' "$directory" "$filename"
+}
+
+write_new_instances() {
+    local baseline_pids=$1
+    local scanned_instances=$2
+    local destination=$3
+    local port
+    local pid
+    local project
+
+    : > "$destination"
+    while IFS=$'\t' read -r port pid project; do
+        [ -n "$pid" ] || continue
+        if ! grep -Fqx "$pid" "$baseline_pids"; then
+            printf '%s\t%s\t%s\n' "$port" "$pid" "$project" >> "$destination"
+        fi
+    done < "$scanned_instances"
+}
+
+start_multi_instance() {
+    local java_home=$1
+    local launcher=$2
+    local project=$3
+    local log_path=$4
+    local args=(fg jdk Ghidra "" "  " ghidra.GhidraRun)
+
+    if [ -n "$project" ]; then
+        args+=( "$project" )
+    fi
+    nohup env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+        "$launcher" "${args[@]}" > "$log_path" 2>&1 < /dev/null &
+    STARTED_LAUNCH_PID=$!
+    sleep 1
+    if ! kill -0 "$STARTED_LAUNCH_PID" 2>/dev/null; then
+        sed -n '1,80p' "$log_path" >&2
+        die "Ghidra instance exited during startup; see $log_path"
+    fi
+}
+
+command_launch_multi() {
+    local count=2
+    local count_was_set=false
+    local timeout=${GHIDRA_MCP_LAUNCH_TIMEOUT:-180}
+    local base_port=${GHIDRA_MCP_BASE_PORT:-$MCP_DEFAULT_PORT}
+    local java_home
+    local launcher
+    local launch_log_dir
+    local launch_stamp
+    local launch_log
+    local deadline
+    local now
+    local found
+    local index
+    local project
+    local baseline_instances
+    local baseline_pids
+    local scanned_instances
+    local new_instances
+    local project_list
+    local project_names
+    local baseline_project_names
+    local project_name
+    local projects=()
+    local normalized_projects=()
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --count)
+                [ $# -ge 2 ] || die "--count requires a value"
+                count=$2
+                count_was_set=true
+                shift 2
+                ;;
+            --timeout)
+                [ $# -ge 2 ] || die "--timeout requires a value"
+                timeout=$2
+                shift 2
+                ;;
+            --base-port)
+                [ $# -ge 2 ] || die "--base-port requires a value"
+                base_port=$(parse_base_port_option "$1" "$2")
+                shift 2
+                ;;
+            --)
+                shift
+                while [ $# -gt 0 ]; do
+                    projects+=( "$1" )
+                    shift
+                done
+                ;;
+            -*) die "Unknown launch-multi option: $1" ;;
+            *) projects+=( "$1" ); shift ;;
+        esac
+    done
+
+    is_positive_integer "$timeout" || die "Timeout must be a positive integer"
+    validate_base_port "$base_port"
+    if [ ${#projects[@]} -gt 0 ]; then
+        [ "$count_was_set" = false ] || die "Use either --count or project paths, not both"
+        count=${#projects[@]}
+        for project in "${projects[@]}"; do
+            normalized_projects+=( "$(normalize_project_path "$project")" )
+        done
+    else
+        is_positive_integer "$count" || die "Instance count must be a positive integer"
+    fi
+    [ "$count" -ge 2 ] || die "launch-multi requires at least two instances"
+    [ "$count" -le "$MCP_PORT_RANGE" ] \
+        || die "Instance count exceeds GhidraMCP's $MCP_PORT_RANGE-port fallback range"
+
+    require_active_pair
+    require_command curl
+    require_command jq
+    java_home=$(find_java21) \
+        || die "JDK 21 not found. Install it with: brew install openjdk@21"
+    launcher="$CURRENT_LINK/ghidra/support/launch.sh"
+    [ -x "$launcher" ] || die "Active Ghidra launcher is missing. Run sync to repair it."
+    make_temp_dir
+    launch_log_dir="$MANAGED_DIR/launch-logs"
+    launch_stamp=$(date '+%Y%m%d-%H%M%S')
+    mkdir -p "$launch_log_dir"
+    baseline_instances="$TEMP_DIR/baseline-instances"
+    baseline_pids="$TEMP_DIR/baseline-pids"
+    scanned_instances="$TEMP_DIR/scanned-instances"
+    new_instances="$TEMP_DIR/new-instances"
+    project_list="$TEMP_DIR/projects"
+    project_names="$TEMP_DIR/project-names"
+    baseline_project_names="$TEMP_DIR/baseline-project-names"
+    scan_mcp_instances "$base_port" | sort -n > "$baseline_instances"
+    cut -f2 "$baseline_instances" > "$baseline_pids"
+    cut -f3 "$baseline_instances" > "$baseline_project_names"
+
+    if [ ${#normalized_projects[@]} -gt 0 ]; then
+        printf '%s\n' "${normalized_projects[@]}" | sort > "$project_list"
+        [ -z "$(uniq -d "$project_list")" ] || die "Each Ghidra instance requires a different project"
+        : > "$project_names"
+        for project in "${normalized_projects[@]}"; do
+            project_name=$(basename "$project" .gpr)
+            printf '%s\n' "$project_name" >> "$project_names"
+            if grep -Fqx "$project_name" "$baseline_project_names"; then
+                die "Project is already active in a GhidraMCP instance: $project_name"
+            fi
+        done
+        sort -o "$project_names" "$project_names"
+        [ -z "$(uniq -d "$project_names")" ] \
+            || die "Project names must be unique for GhidraMCP instance selection"
+    fi
+    if [ $(( $(wc -l < "$baseline_instances" | tr -d ' ') + count )) -gt "$MCP_PORT_RANGE" ]; then
+        die "Not enough ports remain in the $base_port-$((base_port + MCP_PORT_RANGE - 1)) fallback range"
+    fi
+
+    log "Launching $count Ghidra instances with JDK 21..."
+    for ((index = 0; index < count; index++)); do
+        if [ ${#normalized_projects[@]} -gt 0 ]; then
+            project=${normalized_projects[$index]}
+            log "  Instance $((index + 1)): $project"
+        else
+            project=""
+            log "  Instance $((index + 1)): restore/select a distinct project"
+        fi
+        launch_log="$launch_log_dir/$launch_stamp-$((index + 1)).log"
+        start_multi_instance "$java_home" "$launcher" "$project" "$launch_log"
+        log "    launcher PID $STARTED_LAUNCH_PID | log $launch_log"
+    done
+
+    log "Waiting up to $timeout seconds for $count new GhidraMCP endpoints on ports $base_port-$((base_port + MCP_PORT_RANGE - 1))..."
+    deadline=$(( $(date +%s) + timeout ))
+    while :; do
+        scan_mcp_instances "$base_port" | sort -n > "$scanned_instances"
+        write_new_instances "$baseline_pids" "$scanned_instances" "$new_instances"
+        found=$(wc -l < "$new_instances" | tr -d ' ')
+        if [ "$found" -ge "$count" ]; then
+            log "GhidraMCP instances ready:"
+            print_instance_file "$new_instances"
+            return 0
+        fi
+        now=$(date +%s)
+        [ "$now" -lt "$deadline" ] || break
+        sleep 2
+    done
+
+    if [ -s "$new_instances" ]; then
+        log "New MCP endpoints detected before timeout:"
+        print_instance_file "$new_instances"
+    fi
+    die "Detected $found of $count new MCP endpoints. Open CodeBrowser in each new project, enable GhidraMCP, and run instances to inspect ports."
+}
+
 command_bridge() {
     local bridge_asset
     local bridge_path
@@ -644,6 +948,8 @@ main() {
         sync) command_sync "$@" ;;
         status) [ $# -eq 0 ] || die "status accepts no arguments"; command_status ;;
         launch) command_launch "$@" ;;
+        launch-multi) command_launch_multi "$@" ;;
+        instances) command_instances "$@" ;;
         bridge) command_bridge "$@" ;;
         rollback) [ $# -eq 0 ] || die "rollback accepts no arguments"; command_rollback ;;
         help|-h|--help) usage ;;

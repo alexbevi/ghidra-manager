@@ -78,6 +78,9 @@ git diff --check
   activation, retention, or rollback.
 - Re-run `sync` to verify idempotence.
 - Run `bridge --help` after changing bridge selection or Python runtime setup.
+- Run `instances` after changing MCP discovery, port parsing, or output.
+- Test `launch-multi` with two distinct disposable or existing projects after
+  changing process launch, baseline exclusion, timeout, or port-range behavior.
 - Verify failure cases do not change `current`, `previous`, or the installed
   extension.
 - Inspect `status` and `git status --short` before finishing.
@@ -93,4 +96,3 @@ git diff --check
 - Keep commit subjects specific and reviewer-readable, for example:
   `feat: add managed plugin update workflow`.
 - Do not amend or rewrite existing commits unless explicitly requested.
-
