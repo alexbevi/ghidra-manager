@@ -151,6 +151,50 @@ List all currently responding instances without launching more:
 ./ghidra-manager.sh instances
 ```
 
+Compare two responding projects by exact project name, treating the first as
+the documentation source and the second as the target:
+
+```bash
+./ghidra-manager.sh compare harvester harvester-demo
+```
+
+The comparison is read-only. It prints source and target totals for functions,
+custom and unresolved function names, structs, enums, data types, defined data,
+globals, classes, namespaces, imports, and exports. Functions are matched only
+when their normalized opcode hash and instruction count identify exactly one
+function in each program. Ambiguous hashes are reported and skipped.
+
+The manager inspects exact matches for missing function names, return and
+parameter types, parameter names, calling conventions, comments, and labels.
+It also compares uniquely named structures and enumerations. Existing target
+metadata is never overwritten: different definitions are reported as
+conflicts, and structures with cyclic, empty, or unresolved field dependencies
+are deferred. Unions, typedefs, and local variables are not transferred in
+this first implementation.
+
+Each comparison writes a private JSON plan under `.managed/compare-plans/` and
+retains the newest ten plans. The final output prints the plan path and the
+exact command needed to apply it:
+
+```bash
+./ghidra-manager.sh compare --apply \
+  .managed/compare-plans/<timestamp>-harvester-to-harvester-demo.json
+```
+
+Apply rechecks the target project, process, function hashes, documentation, and
+type state before making any change. It stops at the first rejected operation.
+Changes are deliberately left unsaved so they can be reviewed and undone in
+Ghidra; save the target program only after reviewing them. If apply reports a
+partial failure, undo the earlier changes or close the target without saving,
+then generate a fresh plan before retrying.
+
+Use the same configured discovery range for comparison when the plugin does not
+start at its default port:
+
+```bash
+./ghidra-manager.sh compare --base-port 9000 source-project target-project
+```
+
 List the projects recorded by the active Ghidra version:
 
 ```bash
@@ -179,7 +223,11 @@ them unambiguously.
 - **Multi-launch timed out:** finish opening CodeBrowser and enabling GhidraMCP
   in each new window, then run `./ghidra-manager.sh instances` to print ports.
 - **Custom plugin port:** pass the configured value through `--base-port` or
-  set `GHIDRA_MCP_BASE_PORT` before running discovery or multi-launch.
+  set `GHIDRA_MCP_BASE_PORT` before running discovery, comparison, or
+  multi-launch.
+- **Compare target changed:** if the target project, process, function hashes,
+  documentation, or type state changed after the plan was created, rerun
+  `compare` and apply the new plan.
 - **No recorded projects:** launch the managed Ghidra version once so it creates
   its preferences registry, then open the projects you want it to remember.
 - **Update refused while Ghidra is running:** close the managed Ghidra process
