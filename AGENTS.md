@@ -16,8 +16,10 @@ truth for installation, updates, runtime commands, and rollback behavior.
 - Do not modify Ghidra installations outside this repository.
 - Keep the manager macOS-focused unless a task explicitly expands platform
   support and includes the corresponding validation.
-- Keep all executable management behavior in `ghidra-manager.sh`; do not add a
-  second installer or updater script.
+- Keep `ghidra-manager.sh` as the only supported user-facing entrypoint. Put
+  substantial, self-contained implementation in a narrowly named helper under
+  `tools/` when shell would obscure it, and invoke that helper from the manager.
+  Do not add a second installer or updater entrypoint.
 - Do not add a build system when shell functions and the existing release
   assets are sufficient.
 
@@ -74,6 +76,13 @@ git diff --check
 ```
 
 - Run ShellCheck and markdownlint when installed.
+- Run the managed-Python syntax check after changing the compare engine:
+
+```bash
+uv run --python 3.13 --managed-python --no-project \
+  python -m py_compile tools/ghidra_compare.py
+```
+
 - Run a real `sync` after changing downloads, archive validation, installation,
   activation, retention, or rollback.
 - Re-run `sync` to verify idempotence.

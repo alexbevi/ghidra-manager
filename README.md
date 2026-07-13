@@ -181,6 +181,11 @@ exact command needed to apply it:
   .managed/compare-plans/<timestamp>-harvester-to-harvester-demo.json
 ```
 
+The manager runs its internal `tools/ghidra_compare.py` engine with the same
+managed Python 3.13 environment used for the bridge. Continue to use
+`ghidra-manager.sh` as the stable entrypoint; no system Python packages are
+required.
+
 Apply rechecks the target project, process, function hashes, documentation, and
 type state before making any change. It stops at the first rejected operation.
 Changes are deliberately left unsaved so they can be reviewed and undone in
