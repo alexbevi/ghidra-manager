@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from ghidra_manager import __version__
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import DEFAULT_PORT, PORT_RANGE, discover_instances
 
 
@@ -23,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ghidra-manager")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("status", help="Show installed and upstream versions")
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -52,6 +54,10 @@ def _instances(base_port: int) -> int:
 
 def run(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "status":
+        for line in Manager.discover().status_lines():
+            print(line)
+        return 0
     if args.command == "instances":
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")

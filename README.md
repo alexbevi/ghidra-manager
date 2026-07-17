@@ -31,12 +31,18 @@ discovery slice is available now:
 ```bash
 uv sync --group dev
 uv run ghidra-manager instances
+uv run ghidra-manager status
 ```
 
 Fresh Python CLI installations use the native per-user application-data
 directory on Windows, Linux, and macOS. Set `GHIDRA_MANAGER_HOME` to override
 that location. The final CLI will be installable with `uv tool install` without
 requiring a preinstalled Python interpreter.
+
+When first run from this existing checkout, the Python CLI adopts `.managed/`
+in place and writes a versioned `state.json` from the retained `current` and
+`previous` pair metadata. It does not remove the legacy symlinks, so the shell
+manager remains usable throughout the migration.
 
 ## Install Or Update
 
