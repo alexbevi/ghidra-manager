@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ghidra_manager import compare as compare_engine
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
@@ -36,6 +37,9 @@ from ghidra_manager.storage import (
     read_properties,
     safe_extract,
 )
+
+COMPARE_PLAN_VERSION = 1
+COMPARE_PLAN_RETENTION = 10
 
 
 @dataclass(slots=True)
@@ -348,6 +352,60 @@ class Manager:
             self.paths.python,
             self.paths.uv_cache,
         )
+
+    def compare(
+        self, source_project: str, target_project: str, *, base_port: int = DEFAULT_PORT
+    ) -> int:
+        self._require_active_pair()
+        if source_project == target_project:
+            raise ManagerError("compare source and target projects must be different")
+        instances = self.instance_discovery(base_port)
+        source = self._resolve_instance(source_project, instances)
+        target = self._resolve_instance(target_project, instances)
+        if source.port == target.port:
+            raise ManagerError("compare source and target resolved to the same MCP instance")
+        return compare_engine.main(
+            [
+                "generate",
+                str(self.paths.home),
+                str(COMPARE_PLAN_VERSION),
+                str(COMPARE_PLAN_RETENTION),
+                source.project,
+                str(source.port),
+                str(source.pid),
+                target.project,
+                str(target.port),
+                str(target.pid),
+            ]
+        )
+
+    def compare_apply(self, plan: Path) -> int:
+        self._require_active_pair()
+        return compare_engine.main(
+            [
+                "apply",
+                str(self.paths.home),
+                str(COMPARE_PLAN_VERSION),
+                str(COMPARE_PLAN_RETENTION),
+                str(plan),
+            ]
+        )
+
+    def _require_active_pair(self) -> PairMetadata:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        return store.pair(state.current)
+
+    @staticmethod
+    def _resolve_instance(project: str, instances: list[Instance]) -> Instance:
+        matches = [item for item in instances if item.project == project]
+        if not matches:
+            raise ManagerError(f"No responding GhidraMCP instance has project name: {project}")
+        if len(matches) != 1:
+            raise ManagerError(f"Multiple responding instances have project name: {project}")
+        return matches[0]
 
     @staticmethod
     def _normalize_project(value: str) -> Path:

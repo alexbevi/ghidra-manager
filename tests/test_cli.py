@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from ghidra_manager import cli
 from ghidra_manager.mcp import Instance
 
@@ -116,3 +118,27 @@ def test_bridge_forwards_arguments(monkeypatch) -> None:  # type: ignore[no-unty
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
     assert cli.run(["bridge", "--help"]) == 0
+
+
+def test_compare_arguments(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def compare(self, source: str, target: str, *, base_port: int) -> int:
+            assert (source, target, base_port) == ("source", "target", 9000)
+            return 0
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["compare", "--base-port", "9000", "source", "target"]) == 0
+
+
+def test_compare_apply_argument(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    plan = tmp_path / "plan.json"
+
+    class FakeManager:
+        def compare_apply(self, value: Path) -> int:
+            assert value == plan
+            return 0
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["compare", "--apply", str(plan)]) == 0

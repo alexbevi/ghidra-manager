@@ -38,6 +38,7 @@ uv run ghidra-manager projects
 uv run ghidra-manager launch [args...]
 uv run ghidra-manager launch-multi /path/to/first.gpr /path/to/second.gpr
 uv run ghidra-manager bridge --help
+uv run ghidra-manager compare source-project target-project
 ```
 
 Fresh Python CLI installations use the native per-user application-data
@@ -71,6 +72,9 @@ PIDs, and waits for the requested number of new endpoints.
 The bridge continues to run the retained upstream script through uv-managed
 Python 3.13 with its Python installation and cache kept under the selected
 manager state home.
+The comparison engine is now part of the installed package. The legacy helper
+path remains as a thin compatibility wrapper during migration, so both
+entrypoints generate and apply the same version-1 retained plans.
 
 ## Install Or Update
 

@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from ghidra_manager import __version__
 from ghidra_manager.errors import ManagerError
@@ -54,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         "bridge", help="Run the active GhidraMCP stdio bridge", add_help=False
     )
     bridge.add_argument("arguments", nargs=argparse.REMAINDER)
+    compare = commands.add_parser(
+        "compare", help="Compare two MCP instances or apply a retained plan"
+    )
+    compare.add_argument("--base-port", type=_base_port)
+    compare.add_argument("--apply", type=str)
+    compare.add_argument("projects", nargs="*")
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -120,6 +127,18 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "bridge":
         return Manager.discover().bridge(args.arguments)
+    if args.command == "compare":
+        manager = Manager.discover()
+        if args.apply:
+            if args.projects or args.base_port is not None:
+                build_parser().error("compare --apply requires one plan path")
+            return manager.compare_apply(Path(args.apply))
+        if len(args.projects) != 2:
+            build_parser().error("compare requires SOURCE_PROJECT and TARGET_PROJECT")
+        base_port = args.base_port or int(
+            os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)
+        )
+        return manager.compare(args.projects[0], args.projects[1], base_port=base_port)
     if args.command == "instances":
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")
