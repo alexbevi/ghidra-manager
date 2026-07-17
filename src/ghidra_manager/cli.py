@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="resolve without changing managed state"
     )
     commands.add_parser("status", help="Show installed and upstream versions")
+    commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -64,6 +65,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "status":
         for line in Manager.discover().status_lines():
+            print(line)
+        return 0
+    if args.command == "rollback":
+        for line in Manager.discover().rollback():
             print(line)
         return 0
     if args.command == "instances":

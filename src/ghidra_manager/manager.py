@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import tempfile
@@ -14,7 +15,12 @@ from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
 from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, ResolvedPair
 from ghidra_manager.processes import managed_ghidra_running
-from ghidra_manager.releases import ReleaseClient, resolve_pair, verify_digest
+from ghidra_manager.releases import (
+    ReleaseClient,
+    extension_properties,
+    resolve_pair,
+    verify_digest,
+)
 from ghidra_manager.storage import (
     StateStore,
     atomic_json,
@@ -103,7 +109,12 @@ class Manager:
             transaction = Path(temporary)
             self._stage_mcp(resolved, transaction)
             lines.extend(self._stage_ghidra(resolved, transaction))
-            self._install_extension(resolved, transaction)
+            self._install_extension(
+                resolved.ghidra_version,
+                resolved.mcp_version,
+                resolved.mcp_extension.name,
+                transaction,
+            )
             pair = PairMetadata(
                 pair_id=resolved.pair_id,
                 ghidra_version=resolved.ghidra_version,
@@ -120,6 +131,43 @@ class Manager:
             f"with GhidraMCP {resolved.mcp_version}."
         )
         return lines
+
+    def rollback(self) -> list[str]:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair is installed")
+        if state.previous is None:
+            raise ManagerError("No previous pair is available for rollback")
+        if self.process_check(self.paths.ghidra):
+            raise ManagerError("Close the managed Ghidra instance before rolling back")
+        current = store.pair(state.current)
+        previous = store.pair(state.previous)
+        ghidra_dir = self.paths.ghidra / previous.ghidra_version
+        if not self._valid_ghidra(ghidra_dir, previous.ghidra_version):
+            raise ManagerError("Previous Ghidra installation is missing or invalid")
+        component = self._mcp_metadata(previous.mcp_version)
+        extension_name = component.get("extension_asset")
+        if not extension_name:
+            raise ManagerError("Previous pair metadata is incomplete")
+        archive = self.paths.mcp / previous.mcp_version / extension_name
+        if not archive.is_file():
+            raise ManagerError("Previous GhidraMCP extension archive is missing")
+        with tempfile.TemporaryDirectory(prefix="rollback-", dir=self.paths.home) as temporary:
+            self._install_extension(
+                previous.ghidra_version,
+                previous.mcp_version,
+                extension_name,
+                Path(temporary),
+            )
+            store.save(
+                ManagerState(current=previous.pair_id, previous=current.pair_id)
+            )
+        self._prune(store.load())
+        return [
+            f"Rolled back to Ghidra {previous.ghidra_version} "
+            f"with GhidraMCP {previous.mcp_version}."
+        ]
 
     def _remote_lines(self, resolved: ResolvedPair) -> list[str]:
         lines = [
@@ -203,11 +251,20 @@ class Manager:
         self._replace_directory(roots[0], destination)
         return [f"Downloading Ghidra {resolved.ghidra_version}..."]
 
-    def _install_extension(self, resolved: ResolvedPair, transaction: Path) -> None:
-        if self._installed_mcp_version(resolved.ghidra_version) == resolved.mcp_version:
+    def _install_extension(
+        self,
+        ghidra_version: str,
+        mcp_version: str,
+        extension_name: str,
+        transaction: Path,
+    ) -> None:
+        if self._installed_mcp_version(ghidra_version) == mcp_version:
             return
-        ghidra_dir = self.paths.ghidra / resolved.ghidra_version
-        archive = self.paths.mcp / resolved.mcp_version / resolved.mcp_extension.name
+        ghidra_dir = self.paths.ghidra / ghidra_version
+        archive = self.paths.mcp / mcp_version / extension_name
+        properties = extension_properties(archive)
+        if properties.get("version") != ghidra_version:
+            raise ManagerError("Extension is incompatible with the staged Ghidra installation")
         unpacked = transaction / "extension-unpacked"
         safe_extract(archive, unpacked)
         source = unpacked / "GhidraMCP"
@@ -225,6 +282,20 @@ class Manager:
             if backup.exists():
                 backup.replace(target)
             raise
+
+    def _mcp_metadata(self, mcp_version: str) -> dict[str, str]:
+        component = self.paths.mcp / mcp_version
+        json_path = component / "metadata.json"
+        if json_path.is_file():
+            try:
+                raw: object = json.loads(json_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ManagerError(f"Invalid MCP component metadata: {mcp_version}") from exc
+            if not isinstance(raw, dict):
+                raise ManagerError(f"Invalid MCP component metadata: {mcp_version}")
+            return {str(key): str(value) for key, value in raw.items()}
+        legacy = component / "metadata"
+        return read_properties(legacy)
 
     def _download(self, asset: ReleaseAsset, destination: Path) -> None:
         self.client.download(asset.url, destination)

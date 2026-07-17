@@ -33,6 +33,7 @@ uv sync --group dev
 uv run ghidra-manager instances
 uv run ghidra-manager status
 uv run ghidra-manager sync --dry-run
+uv run ghidra-manager rollback
 ```
 
 Fresh Python CLI installations use the native per-user application-data
@@ -49,6 +50,9 @@ The Python `sync` implementation uses standard-library HTTP, SHA-256, and ZIP
 support instead of `curl`, `jq`, `shasum`, and `unzip`. It stages and validates
 both components before atomically updating versioned JSON state, and preserves
 the extension backup/restore and current/previous retention invariants.
+Rollback validates retained component metadata, reinstalls the exact matching
+extension when two pairs share one Ghidra release, and only then swaps the
+versioned current/previous state.
 
 ## Install Or Update
 

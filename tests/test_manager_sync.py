@@ -5,8 +5,13 @@ import stat
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from ghidra_manager.config import ManagerPaths
+from ghidra_manager.errors import ManagerError
 from ghidra_manager.manager import Manager
+from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.storage import StateStore, atomic_json
 
 
 def _zip(files: dict[str, tuple[bytes, int]]) -> bytes:
@@ -117,3 +122,57 @@ def test_sync_dry_run_does_not_create_state(tmp_path: Path) -> None:
 
     assert lines[-1] == "Dry run: would activate Ghidra 12.1.2 with GhidraMCP 5.14.2."
     assert not paths.state.exists()
+
+
+def test_rollback_reinstalls_shared_ghidra_extension(tmp_path: Path) -> None:
+    paths = ManagerPaths(tmp_path / "managed")
+    manager = Manager(paths, SyncClient(), process_check=lambda _: False)
+    manager.sync()
+    store = StateStore(paths)
+    current = store.load().current
+    assert current is not None
+    previous = PairMetadata(
+        pair_id="ghidra-12.1.2__mcp-5.14.1",
+        ghidra_version="12.1.2",
+        mcp_version="5.14.1",
+        ghidra_tag="Ghidra_12.1.2_build",
+        mcp_tag="v5.14.1",
+    )
+    store.save_pair(previous)
+    component = paths.mcp / previous.mcp_version
+    component.mkdir(parents=True)
+    extension_name = "GhidraMCP-5.14.1.zip"
+    (component / extension_name).write_bytes(
+        _zip(
+            {
+                "GhidraMCP/extension.properties": (
+                    b"name=GhidraMCP\n"
+                    b"description=Ghidra MCP Plugin version 5.14.1.\n"
+                    b"version=12.1.2\n",
+                    0o644,
+                )
+            }
+        )
+    )
+    atomic_json(component / "metadata.json", {"extension_asset": extension_name})
+    store.save(ManagerState(current=current, previous=previous.pair_id))
+
+    assert manager.rollback() == ["Rolled back to Ghidra 12.1.2 with GhidraMCP 5.14.1."]
+    assert store.load() == ManagerState(current=previous.pair_id, previous=current)
+    installed = paths.ghidra / "12.1.2/Ghidra/Extensions/GhidraMCP/extension.properties"
+    assert "5.14.1" in installed.read_text(encoding="utf-8")
+
+
+def test_rollback_refuses_running_ghidra_without_changing_state(tmp_path: Path) -> None:
+    paths = ManagerPaths(tmp_path / "managed")
+    manager = Manager(paths, SyncClient(), process_check=lambda _: False)
+    manager.sync()
+    store = StateStore(paths)
+    state = store.load()
+    store.save(ManagerState(current=state.current, previous=state.current))
+    blocked = Manager(paths, SyncClient(), process_check=lambda _: True)
+
+    with pytest.raises(ManagerError, match="Close the managed Ghidra"):
+        blocked.rollback()
+
+    assert store.load() == ManagerState(current=state.current, previous=state.current)

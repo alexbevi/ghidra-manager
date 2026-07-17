@@ -49,3 +49,14 @@ def test_sync_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-de
     assert capsys.readouterr().out == (
         "Resolving stable upstream releases...\nDry run: already current.\n"
     )
+
+
+def test_rollback_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def rollback(self) -> list[str]:
+            return ["Rolled back."]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["rollback"]) == 0
+    assert capsys.readouterr().out == "Rolled back.\n"
