@@ -15,7 +15,7 @@ from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
 from ghidra_manager.mcp import DEFAULT_PORT, Instance, discover_instances
 from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, ResolvedPair
-from ghidra_manager.platforms import ghidra_settings_dir
+from ghidra_manager.platforms import find_java21, ghidra_settings_dir, run_ghidra
 from ghidra_manager.processes import managed_ghidra_running
 from ghidra_manager.releases import (
     ReleaseClient,
@@ -226,6 +226,18 @@ class Manager:
             )
         lines.append(f"{len(unique)} recorded projects from {preferences}")
         return lines
+
+    def launch(self, arguments: list[str]) -> tuple[str, int]:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        pair = store.pair(state.current)
+        java_home = find_java21()
+        message = f"Launching Ghidra {pair.ghidra_version} with JDK 21..."
+        return message, run_ghidra(
+            self.paths.ghidra / pair.ghidra_version, arguments, java_home
+        )
 
     @staticmethod
     def _project_base(value: str) -> str:

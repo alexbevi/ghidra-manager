@@ -72,3 +72,15 @@ def test_projects_output(monkeypatch, capsys) -> None:  # type: ignore[no-untype
 
     assert cli.run(["projects"]) == 0
     assert capsys.readouterr().out == "Projects known to Ghidra 12.1.2:\ndemo\n"
+
+
+def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def launch(self, arguments: list[str]) -> tuple[str, int]:
+            assert arguments == ["demo.gpr", "--flag"]
+            return "Launching Ghidra 12.1.2 with JDK 21...", 0
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["launch", "demo.gpr", "--flag"]) == 0
+    assert capsys.readouterr().out == "Launching Ghidra 12.1.2 with JDK 21...\n"

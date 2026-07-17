@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("status", help="Show installed and upstream versions")
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
+    launch = commands.add_parser("launch", help="Launch one active Ghidra with JDK 21")
+    launch.add_argument("arguments", nargs=argparse.REMAINDER)
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -77,6 +79,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         for line in Manager.discover().projects(base_port=base_port):
             print(line)
         return 0
+    if args.command == "launch":
+        message, returncode = Manager.discover().launch(args.arguments)
+        print(message)
+        return returncode
     if args.command == "instances":
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")
