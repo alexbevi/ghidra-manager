@@ -32,6 +32,7 @@ discovery slice is available now:
 uv sync --group dev
 uv run ghidra-manager instances
 uv run ghidra-manager status
+uv run ghidra-manager sync --dry-run
 ```
 
 Fresh Python CLI installations use the native per-user application-data
@@ -43,6 +44,11 @@ When first run from this existing checkout, the Python CLI adopts `.managed/`
 in place and writes a versioned `state.json` from the retained `current` and
 `previous` pair metadata. It does not remove the legacy symlinks, so the shell
 manager remains usable throughout the migration.
+
+The Python `sync` implementation uses standard-library HTTP, SHA-256, and ZIP
+support instead of `curl`, `jq`, `shasum`, and `unzip`. It stages and validates
+both components before atomically updating versioned JSON state, and preserves
+the extension backup/restore and current/previous retention invariants.
 
 ## Install Or Update
 

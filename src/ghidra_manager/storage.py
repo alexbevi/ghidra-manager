@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import stat
+import zipfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -47,6 +50,32 @@ def atomic_json(path: Path, value: object, *, mode: int | None = None) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def safe_extract(archive: Path, destination: Path) -> None:
+    """Extract a ZIP without allowing traversal or archived symlinks."""
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            for entry in bundle.infolist():
+                target = (destination / entry.filename).resolve()
+                if target != root and root not in target.parents:
+                    raise ManagerError(f"Archive entry escapes destination: {entry.filename}")
+                mode = entry.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise ManagerError(f"Archive contains unsupported symlink: {entry.filename}")
+                if entry.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(entry) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                permissions = stat.S_IMODE(mode)
+                if permissions and os.name != "nt":
+                    target.chmod(permissions)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ManagerError(f"Unable to extract archive: {archive.name}: {exc}") from exc
+
+
 class StateStore:
     def __init__(self, paths: ManagerPaths):
         self.paths = paths
@@ -61,6 +90,9 @@ class StateStore:
 
     def save(self, state: ManagerState) -> None:
         atomic_json(self.paths.state, asdict(state), mode=0o600)
+        if self.legacy_mode:
+            self._save_legacy_link("current", state.current)
+            self._save_legacy_link("previous", state.previous)
 
     def pair(self, pair_id: str) -> PairMetadata:
         pair_dir = self.paths.pairs / pair_id
@@ -82,6 +114,20 @@ class StateStore:
         pair_dir = self.paths.pairs / pair.pair_id
         pair_dir.mkdir(parents=True, exist_ok=True)
         atomic_json(pair_dir / "metadata.json", asdict(pair), mode=0o600)
+        if self.legacy_mode:
+            (pair_dir / "metadata").write_text(
+                f"ghidra_version={pair.ghidra_version}\n"
+                f"mcp_version={pair.mcp_version}\n"
+                f"ghidra_tag={pair.ghidra_tag}\n"
+                f"mcp_tag={pair.mcp_tag}\n",
+                encoding="utf-8",
+            )
+            self._replace_symlink(pair_dir / "ghidra", self.paths.ghidra / pair.ghidra_version)
+            self._replace_symlink(pair_dir / "ghidra-mcp", self.paths.mcp / pair.mcp_version)
+
+    @property
+    def legacy_mode(self) -> bool:
+        return (self.paths.home.parent / "ghidra-manager.sh").is_file() and os.name != "nt"
 
     def _load_json_state(self) -> ManagerState:
         try:
@@ -117,6 +163,20 @@ class StateStore:
         pair_id = target.name
         self.pair(pair_id)
         return pair_id
+
+    def _save_legacy_link(self, name: str, pair_id: str | None) -> None:
+        path = self.paths.home / name
+        if pair_id is None:
+            path.unlink(missing_ok=True)
+            return
+        self._replace_symlink(path, self.paths.pairs / pair_id)
+
+    @staticmethod
+    def _replace_symlink(path: Path, target: Path) -> None:
+        staged = path.with_name(f".{path.name}.{os.getpid()}.next")
+        staged.unlink(missing_ok=True)
+        staged.symlink_to(target, target_is_directory=True)
+        os.replace(staged, path)
 
     @staticmethod
     def _pair_from_mapping(pair_id: str, raw: dict[str, Any]) -> PairMetadata:

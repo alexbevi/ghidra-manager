@@ -20,6 +20,7 @@ dev = [
   "mypy>=1.16,<2",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
+  "types-psutil>=7.0,<8",
 ]
 
 [tool.hatch.build.targets.wheel]

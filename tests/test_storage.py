@@ -1,4 +1,6 @@
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -6,7 +8,7 @@ import pytest
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.models import ManagerState, PairMetadata
-from ghidra_manager.storage import StateStore
+from ghidra_manager.storage import StateStore, safe_extract
 
 
 def _legacy_pair(paths: ManagerPaths, name: str) -> Path:
@@ -63,3 +65,16 @@ def test_unknown_state_schema_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ManagerError, match="Unsupported manager state schema"):
         StateStore(paths).load()
+
+
+def test_safe_extract_rejects_path_traversal(tmp_path: Path) -> None:
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("../escape", "bad")
+    path = tmp_path / "bad.zip"
+    path.write_bytes(payload.getvalue())
+
+    with pytest.raises(ManagerError, match="escapes destination"):
+        safe_extract(path, tmp_path / "output")
+
+    assert not (tmp_path / "escape").exists()

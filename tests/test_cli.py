@@ -35,3 +35,17 @@ def test_status_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-
     assert capsys.readouterr().out == (
         "Active pair:        not installed\nUpstream Ghidra:    12.2\n"
     )
+
+
+def test_sync_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def sync(self, *, dry_run: bool = False) -> list[str]:
+            assert dry_run
+            return ["Resolving stable upstream releases...", "Dry run: already current."]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["sync", "--dry-run"]) == 0
+    assert capsys.readouterr().out == (
+        "Resolving stable upstream releases...\nDry run: already current.\n"
+    )
