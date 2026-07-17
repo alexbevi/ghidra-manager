@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,12 @@ from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
 from ghidra_manager.mcp import DEFAULT_PORT, Instance, discover_instances
 from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, ResolvedPair
-from ghidra_manager.platforms import find_java21, ghidra_settings_dir, run_ghidra
+from ghidra_manager.platforms import (
+    find_java21,
+    ghidra_settings_dir,
+    run_ghidra,
+    start_ghidra_instance,
+)
 from ghidra_manager.processes import managed_ghidra_running
 from ghidra_manager.releases import (
     ReleaseClient,
@@ -238,6 +244,103 @@ class Manager:
         return message, run_ghidra(
             self.paths.ghidra / pair.ghidra_version, arguments, java_home
         )
+
+    def launch_multi(
+        self,
+        projects: list[str],
+        *,
+        count: int | None = None,
+        timeout: int = 180,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[str]:
+        if timeout <= 0:
+            raise ManagerError("Timeout must be a positive integer")
+        if projects and count is not None:
+            raise ManagerError("Use either --count or project paths, not both")
+        normalized = [self._normalize_project(path) for path in projects]
+        instance_count = len(normalized) if normalized else (count or 2)
+        if instance_count < 2:
+            raise ManagerError("launch-multi requires at least two instances")
+        if instance_count > 16:
+            raise ManagerError("Instance count exceeds GhidraMCP's 16-port fallback range")
+        if len(set(normalized)) != len(normalized):
+            raise ManagerError("Each Ghidra instance requires a different project")
+        names = [path.stem for path in normalized]
+        if len(set(names)) != len(names):
+            raise ManagerError("Project names must be unique for GhidraMCP instance selection")
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        pair = store.pair(state.current)
+        baseline = self.instance_discovery(base_port)
+        active_names = {instance.project for instance in baseline}
+        duplicate_active = next((name for name in names if name in active_names), None)
+        if duplicate_active:
+            raise ManagerError(
+                f"Project is already active in a GhidraMCP instance: {duplicate_active}"
+            )
+        if len(baseline) + instance_count > 16:
+            raise ManagerError(
+                f"Not enough ports remain in the {base_port}-{base_port + 15} fallback range"
+            )
+        java_home = find_java21()
+        install = self.paths.ghidra / pair.ghidra_version
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        log_dir = self.paths.home / "launch-logs"
+        lines = [f"Launching {instance_count} Ghidra instances with JDK 21..."]
+        for index in range(instance_count):
+            project = normalized[index] if normalized else None
+            description = str(project) if project else "restore/select a distinct project"
+            lines.append(f"  Instance {index + 1}: {description}")
+            log_path = log_dir / f"{stamp}-{index + 1}.log"
+            process = start_ghidra_instance(install, project, java_home, log_path)
+            time.sleep(1)
+            if process.poll() is not None:
+                detail = log_path.read_text(encoding="utf-8", errors="replace")[:4000]
+                raise ManagerError(
+                    f"Ghidra instance exited during startup; see {log_path}\n{detail}"
+                )
+            lines.append(f"    launcher PID {process.pid} | log {log_path}")
+        lines.append(
+            f"Waiting up to {timeout} seconds for {instance_count} new GhidraMCP endpoints "
+            f"on ports {base_port}-{base_port + 15}..."
+        )
+        baseline_pids = {instance.pid for instance in baseline}
+        deadline = time.monotonic() + timeout
+        new_instances: list[Instance] = []
+        while time.monotonic() < deadline:
+            scanned = self.instance_discovery(base_port)
+            new_instances = [item for item in scanned if item.pid not in baseline_pids]
+            if len(new_instances) >= instance_count:
+                lines.append("GhidraMCP instances ready:")
+                lines.extend(self._instance_lines(new_instances))
+                return lines
+            time.sleep(2)
+        if new_instances:
+            lines.append("New MCP endpoints detected before timeout:")
+            lines.extend(self._instance_lines(new_instances))
+        raise ManagerError(
+            f"Detected {len(new_instances)} of {instance_count} new MCP endpoints. "
+            "Open CodeBrowser in each new project, enable GhidraMCP, and run instances "
+            "to inspect ports."
+        )
+
+    @staticmethod
+    def _normalize_project(value: str) -> Path:
+        path = Path(value)
+        if path.suffix != ".gpr":
+            raise ManagerError(f"Ghidra project must use the .gpr extension: {value}")
+        if not path.is_file():
+            raise ManagerError(f"Ghidra project not found: {value}")
+        return path.resolve()
+
+    @staticmethod
+    def _instance_lines(instances: list[Instance]) -> list[str]:
+        return [
+            f"MCP port {item.port} | PID {item.pid} | project {item.project} | {item.url}"
+            for item in sorted(instances)
+        ]
 
     @staticmethod
     def _project_base(value: str) -> str:

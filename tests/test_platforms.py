@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.platforms import find_java21, ghidra_settings_dir, run_ghidra
+from ghidra_manager.platforms import (
+    find_java21,
+    ghidra_settings_dir,
+    run_ghidra,
+    start_ghidra_instance,
+)
 
 
 def test_ghidra_settings_paths() -> None:
@@ -54,3 +59,21 @@ def test_unix_launcher_receives_arguments(tmp_path: Path) -> None:
 
     assert run_ghidra(install, ["project.gpr", "--flag"], tmp_path, platform="linux") == 0
     assert output.read_text(encoding="utf-8") == "project.gpr --flag"
+
+
+def test_detached_unix_launcher_uses_foreground_mode(tmp_path: Path) -> None:
+    install = tmp_path / "ghidra"
+    launcher = install / "support/launch.sh"
+    project = tmp_path / "demo.gpr"
+    output = tmp_path / "arguments"
+    log = tmp_path / "launch.log"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text(f"#!/bin/sh\nprintf '%s' \"$*\" > '{output}'\n", encoding="utf-8")
+    launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
+    project.write_text("", encoding="utf-8")
+
+    process = start_ghidra_instance(install, project, tmp_path, log, platform="linux")
+    assert process.wait(timeout=5) == 0
+    assert output.read_text(encoding="utf-8") == (
+        f"fg jdk Ghidra     ghidra.GhidraRun {project}"
+    )

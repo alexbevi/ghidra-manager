@@ -84,3 +84,24 @@ def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore
 
     assert cli.run(["launch", "demo.gpr", "--flag"]) == 0
     assert capsys.readouterr().out == "Launching Ghidra 12.1.2 with JDK 21...\n"
+
+
+def test_launch_multi_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def launch_multi(
+            self,
+            projects: list[str],
+            *,
+            count: int | None,
+            timeout: int,
+            base_port: int,
+        ) -> list[str]:
+            assert (projects, count, timeout, base_port) == ([], 2, 30, 9000)
+            return ["GhidraMCP instances ready:"]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(
+        ["launch-multi", "--count", "2", "--timeout", "30", "--base-port", "9000"]
+    ) == 0
+    assert capsys.readouterr().out == "GhidraMCP instances ready:\n"

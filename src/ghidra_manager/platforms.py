@@ -123,3 +123,49 @@ def run_ghidra(
         return subprocess.run(command, check=False, env=environment).returncode
     except OSError as exc:
         raise ManagerError(f"Failed to launch Ghidra: {exc}") from exc
+
+
+def start_ghidra_instance(
+    install: Path,
+    project: Path | None,
+    java_home: Path,
+    log_path: Path,
+    *,
+    platform: str | None = None,
+) -> subprocess.Popen[bytes]:
+    platform = platform or sys.platform
+    environment = os.environ.copy()
+    environment["JAVA_HOME"] = str(java_home)
+    environment["PATH"] = str(java_home / "bin") + os.pathsep + environment.get("PATH", "")
+    arguments = ["fg", "jdk", "Ghidra", "", "  ", "ghidra.GhidraRun"]
+    if project is not None:
+        arguments.append(str(project))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if platform == "win32":
+        launcher = install / "support" / "launch.bat"
+        command_line = subprocess.list2cmdline([str(launcher), *arguments])
+        command = [environment.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", command_line]
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+            subprocess, "DETACHED_PROCESS", 0
+        )
+        start_new_session = False
+    else:
+        launcher = install / "support" / "launch.sh"
+        command = [str(launcher), *arguments]
+        creationflags = 0
+        start_new_session = True
+    if not launcher.is_file():
+        raise ManagerError("Active Ghidra launcher is missing. Run sync to repair it.")
+    try:
+        with log_path.open("wb") as log:
+            return subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                env=environment,
+                creationflags=creationflags,
+                start_new_session=start_new_session,
+            )
+    except OSError as exc:
+        raise ManagerError(f"Failed to launch Ghidra instance: {exc}") from exc

@@ -33,6 +33,21 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
     launch = commands.add_parser("launch", help="Launch one active Ghidra with JDK 21")
     launch.add_argument("arguments", nargs=argparse.REMAINDER)
+    launch_multi = commands.add_parser(
+        "launch-multi", help="Launch multiple Ghidra projects and report their MCP ports"
+    )
+    launch_multi.add_argument("--count", type=int)
+    launch_multi.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("GHIDRA_MCP_LAUNCH_TIMEOUT", "180")),
+    )
+    launch_multi.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
+    launch_multi.add_argument("projects", nargs="*")
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -83,6 +98,15 @@ def run(argv: Sequence[str] | None = None) -> int:
         message, returncode = Manager.discover().launch(args.arguments)
         print(message)
         return returncode
+    if args.command == "launch-multi":
+        for line in Manager.discover().launch_multi(
+            args.projects,
+            count=args.count,
+            timeout=args.timeout,
+            base_port=args.base_port,
+        ):
+            print(line)
+        return 0
     if args.command == "instances":
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")
