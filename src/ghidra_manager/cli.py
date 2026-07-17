@@ -22,9 +22,13 @@ def _base_port(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ghidra-manager")
+    parser = argparse.ArgumentParser(
+        prog="ghidra-manager",
+        description="Manage compatible Ghidra and GhidraMCP releases.",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("help", help="Show this help")
     sync = commands.add_parser("sync", help="Install or update the newest compatible stable pair")
     sync.add_argument(
         "--dry-run", action="store_true", help="resolve without changing managed state"
@@ -90,6 +94,8 @@ def _instances(base_port: int) -> int:
 
 def run(argv: Sequence[str] | None = None) -> int:
     values = list(argv if argv is not None else sys.argv[1:])
+    if not values:
+        values = ["sync"]
     if values and values[0] in {"launch", "bridge"}:
         args = build_parser().parse_args([values[0]])
         args.arguments = values[1:]
@@ -98,6 +104,9 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "sync":
         for line in Manager.discover().sync(dry_run=args.dry_run):
             print(line)
+        return 0
+    if args.command == "help":
+        build_parser().print_help()
         return 0
     if args.command == "status":
         for line in Manager.discover().status_lines():

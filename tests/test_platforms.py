@@ -1,3 +1,4 @@
+import os
 import stat
 from pathlib import Path
 
@@ -29,6 +30,7 @@ def test_ghidra_settings_paths() -> None:
     ) == Path(r"C:\Users\tester\AppData\Roaming") / "ghidra/ghidra_12.1.2_PUBLIC"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX Java fixture")
 def test_find_java21_from_java_home(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     java_home = tmp_path / "jdk"
     java = java_home / "bin/java"
@@ -50,6 +52,7 @@ def test_missing_java21_is_actionable(monkeypatch) -> None:  # type: ignore[no-u
         find_java21(platform="linux", environ={"PATH": ""})
 
 
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX launcher fixture")
 def test_unix_launcher_receives_arguments(tmp_path: Path) -> None:
     install = tmp_path / "ghidra"
     launcher = install / "ghidraRun"
@@ -62,6 +65,7 @@ def test_unix_launcher_receives_arguments(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8") == "project.gpr --flag"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX launcher fixture")
 def test_detached_unix_launcher_uses_foreground_mode(tmp_path: Path) -> None:
     install = tmp_path / "ghidra"
     launcher = install / "support/launch.sh"
@@ -80,6 +84,7 @@ def test_detached_unix_launcher_uses_foreground_mode(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv fixture")
 def test_bridge_receives_managed_uv_environment(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     uv = tmp_path / "uv"
     output = tmp_path / "bridge-env"

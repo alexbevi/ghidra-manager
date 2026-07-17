@@ -1,294 +1,208 @@
-# Local Ghidra Manager
+# Ghidra Manager
 
-This directory manages a compatible Ghidra and
-[GhidraMCP](https://github.com/bethington/ghidra-mcp) installation from one
-script. It follows stable GitHub releases, verifies every downloaded asset with
-its published SHA-256 digest, and installs GhidraMCP directly into the matching
-Ghidra distribution.
+Ghidra Manager is a cross-platform CLI for installing and running a compatible
+pair of [Ghidra](https://github.com/NationalSecurityAgency/ghidra) and
+[GhidraMCP](https://github.com/bethington/ghidra-mcp). It tracks stable GitHub
+releases, requires GitHub-published SHA-256 digests, reads compatibility from
+the extension itself, and retains the active pair plus one rollback pair.
 
-## Prerequisites
+The `ghidra-manager` Python command is the only supported user-facing
+entrypoint on Windows, Linux, and macOS.
 
-The manager currently targets macOS. It requires:
+## Install
 
-- `curl`, `unzip`, and `shasum` from macOS
-- [`jq`](https://jqlang.github.io/jq/)
-- [`uv`](https://docs.astral.sh/uv/) for the isolated MCP bridge runtime
-- a 64-bit JDK 21 for running Ghidra
+Install [`uv`](https://docs.astral.sh/uv/) and a 64-bit JDK 21. The CLI uses uv
+to provision Python 3.13, so a system Python installation is not required.
 
-Install the non-system prerequisites with Homebrew when needed:
-
-```bash
-brew install jq uv openjdk@21
-```
-
-## Cross-Platform CLI Migration Preview
-
-The manager is being ported command by command to an installable Python CLI.
-The existing `ghidra-manager.sh` remains the supported lifecycle entrypoint
-until the Python implementation reaches full parity. The portable MCP instance
-discovery slice is available now:
+From a checkout:
 
 ```bash
-uv sync --group dev
-uv run ghidra-manager instances
-uv run ghidra-manager status
-uv run ghidra-manager sync --dry-run
-uv run ghidra-manager rollback
-uv run ghidra-manager projects
-uv run ghidra-manager launch [args...]
-uv run ghidra-manager launch-multi /path/to/first.gpr /path/to/second.gpr
-uv run ghidra-manager bridge --help
-uv run ghidra-manager compare source-project target-project
+uv tool install .
+ghidra-manager help
 ```
 
-Fresh Python CLI installations use the native per-user application-data
-directory on Windows, Linux, and macOS. Set `GHIDRA_MANAGER_HOME` to override
-that location. The final CLI will be installable with `uv tool install` without
-requiring a preinstalled Python interpreter.
+For development:
 
-When first run from this existing checkout, the Python CLI adopts `.managed/`
-in place and writes a versioned `state.json` from the retained `current` and
-`previous` pair metadata. It does not remove the legacy symlinks, so the shell
-manager remains usable throughout the migration.
+```bash
+uv sync --locked --group dev
+uv run ghidra-manager help
+```
 
-The Python `sync` implementation uses standard-library HTTP, SHA-256, and ZIP
-support instead of `curl`, `jq`, `shasum`, and `unzip`. It stages and validates
-both components before atomically updating versioned JSON state, and preserves
-the extension backup/restore and current/previous retention invariants.
-Rollback validates retained component metadata, reinstalls the exact matching
-extension when two pairs share one Ghidra release, and only then swaps the
-versioned current/previous state.
+JDK discovery checks `JAVA_HOME` and `PATH` on every platform. macOS also uses
+`/usr/libexec/java_home` and Homebrew when available.
 
-Portable project discovery reads the settings directory selected by Ghidra on
-Windows (`%APPDATA%`), Linux (`XDG_CONFIG_HOME`), or macOS (`~/Library`) and
-retains the same ready/incomplete/missing and active-MCP reporting.
-
-The portable launcher accepts the same pass-through arguments, requires JDK
-21 through `JAVA_HOME` or `PATH`, retains the existing macOS discovery
-fallbacks, and selects `ghidraRun.bat` on Windows or `ghidraRun` elsewhere.
-Multi-launch uses a detached foreground Ghidra launcher appropriate to each OS,
-keeps per-instance logs under the managed state home, excludes baseline MCP
-PIDs, and waits for the requested number of new endpoints.
-The bridge continues to run the retained upstream script through uv-managed
-Python 3.13 with its Python installation and cache kept under the selected
-manager state home.
-The comparison engine is now part of the installed package. The legacy helper
-path remains as a thin compatibility wrapper during migration, so both
-entrypoints generate and apply the same version-1 retained plans.
-
-## Install Or Update
+## Install, Update, And Roll Back
 
 Resolve and install the newest compatible stable pair:
 
 ```bash
-./ghidra-manager.sh sync
+ghidra-manager sync
 ```
 
-The GhidraMCP release declares the Ghidra version it supports. When Ghidra has
-a newer release that GhidraMCP does not yet declare, the manager keeps the
-compatible Ghidra version and reports the held update.
-
-Preview release selection without retaining downloads:
+Preview release selection without changing managed state:
 
 ```bash
-./ghidra-manager.sh sync --dry-run
+ghidra-manager sync --dry-run
 ```
 
-Show active and upstream versions:
+Show active, retained, compatible, and newest upstream versions:
 
 ```bash
-./ghidra-manager.sh status
+ghidra-manager status
 ```
 
-The manager retains the current pair and one previous pair. Return to the
-previous pair with:
+Return to the retained previous pair:
 
 ```bash
-./ghidra-manager.sh rollback
+ghidra-manager rollback
 ```
 
-Close managed Ghidra instances before syncing or rolling back. Rollback also
-reinstalls the retained extension, which keeps the bridge and Ghidra plugin at
-the same version when both pairs use one Ghidra release.
+Close managed Ghidra processes before syncing or rolling back. When current
+and previous pairs share one Ghidra release, rollback reinstalls the retained
+extension before changing active state.
 
-`GH_TOKEN` or `GITHUB_TOKEN` may be set to authenticate GitHub API requests.
-Unauthenticated requests also work within GitHub's public rate limit.
+`GH_TOKEN` or `GITHUB_TOKEN` may authenticate GitHub API requests.
 
-## Managed Layout
+## Managed State
 
-All downloaded and generated state is ignored by Git under `.managed/`:
+Fresh installations use the native user-data directory:
+
+- Windows: `%LOCALAPPDATA%\ghidra-manager`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/ghidra-manager`
+- macOS: `~/Library/Application Support/ghidra-manager`
+
+Set `GHIDRA_MANAGER_HOME` to override this location.
 
 ```text
-.managed/
+<manager-home>/
 ├── ghidra/<version>/
 ├── ghidra-mcp/<version>/
-├── pairs/<ghidra-and-mcp-versions>/
-├── current -> pairs/<active-pair>/
-├── previous -> pairs/<rollback-pair>/
+├── pairs/<ghidra-and-mcp-versions>/metadata.json
+├── state.json
+├── launch-logs/
+├── compare-plans/
 ├── python/
 └── uv-cache/
 ```
 
-GhidraMCP is extracted into the managed Ghidra installation's
-`Ghidra/Extensions/GhidraMCP` directory, following Ghidra's documented
-system-managed extension layout. Existing Ghidra installations elsewhere on
-the machine are not changed.
+`state.json` records the current and previous pair IDs without requiring
+symlinks. Downloads and extension installation are staged and validated before
+an atomic state replacement. Failed extension replacement restores its backup.
 
-Do not edit `.managed/` by hand. Run `sync` to repair missing or inconsistent
-managed files. Close managed Ghidra instances before installing an update.
+When first run from a checkout containing the former `.managed/` layout, the
+CLI adopts that directory in place and converts valid `current` and `previous`
+pair metadata into versioned JSON. Legacy symlinks are not required afterward.
 
-## Run Ghidra And The MCP Bridge
+## Run Ghidra And GhidraMCP
 
-Launch the active installation with JDK 21:
+Launch the active distribution, optionally opening a project:
 
 ```bash
-./ghidra-manager.sh launch
+ghidra-manager launch
+ghidra-manager launch /path/to/project.gpr
 ```
 
-On the first launch of a new Ghidra settings version:
+On the first launch for a new Ghidra settings version:
 
 1. Open or create a project and launch CodeBrowser.
 2. Select **File > Configure > Configure All Plugins** and enable
    **GhidraMCP**.
 3. Select **Tools > GhidraMCP > Start MCP Server**.
 
-The plugin listens on `127.0.0.1:8089` by default. The stdio bridge connects
-MCP clients to that plugin. Register its stable manager command with Codex:
+The plugin listens on `127.0.0.1:8089` by default and may fall back through
+port 8104. List responding instances:
 
 ```bash
-codex mcp add ghidra -- /Users/alex/Workspace/ghidra/ghidra-manager.sh bridge
+ghidra-manager instances
 ```
 
-The bridge command uses `uv` to provision Python 3.13 and its dependencies
-under `.managed/`; it does not use the system Python environment. To inspect
-the upstream bridge options directly, run:
+List projects from Ghidra's platform-specific settings registry:
 
 ```bash
-./ghidra-manager.sh bridge --help
+ghidra-manager projects
 ```
 
-## Compare Binaries Across Instances
-
-Launch one Ghidra process per project and wait for each GhidraMCP server:
+Launch one process per project and wait for new MCP endpoints:
 
 ```bash
-./ghidra-manager.sh launch-multi \
+ghidra-manager launch-multi \
   /path/to/first-project.gpr \
   /path/to/second-project.gpr
 ```
 
-Each project path and project filename must be different because Ghidra locks
-projects for exclusive use and GhidraMCP selects instances by project name.
-Explicit projects that are already active are rejected. If paths are omitted,
-`launch-multi` opens two instances by default and you must select a different,
-uniquely named project in each window:
+Without paths, `launch-multi` opens two instances by default. Use `--count`,
+`--timeout`, or `--base-port` to override launch behavior. Projects and project
+names must be distinct, and already-active projects are rejected. Detached
+startup logs are retained under `launch-logs/`.
+
+Register the managed stdio bridge with Codex:
 
 ```bash
-./ghidra-manager.sh launch-multi --count 2
+codex mcp add ghidra -- ghidra-manager bridge
 ```
 
-Open CodeBrowser and enable GhidraMCP in every new instance. The command waits
-up to 180 seconds for the new endpoints, then prints verified output containing
-the PID, project, URL, and distinct MCP port for each instance. Adjust the wait
-or the plugin's configured base port when needed:
+The bridge uses uv-managed Python 3.13 and the upstream retained script:
 
 ```bash
-./ghidra-manager.sh launch-multi --count 2 --timeout 300 --base-port 8089
+ghidra-manager bridge --help
 ```
 
-Multi-launch uses detached foreground launchers so the Ghidra processes remain
-running if command output is redirected or piped. Startup logs are retained
-under `.managed/launch-logs/` for troubleshooting.
+`GHIDRA_MCP_BASE_PORT` changes the discovery base port.
+`GHIDRA_MCP_LAUNCH_TIMEOUT` changes the multi-launch timeout.
 
-List all currently responding instances without launching more:
+## Compare Binaries Across Instances
+
+Treat the first responding project as the documentation source and the second
+as the target:
 
 ```bash
-./ghidra-manager.sh instances
+ghidra-manager compare source-project target-project
 ```
 
-Compare two responding projects by exact project name, treating the first as
-the documentation source and the second as the target:
+Comparison is read-only. It summarizes inventories first, then matches
+functions only when normalized opcode hash and instruction count uniquely
+identify one function in each program. It reports missing function metadata,
+structures, and enumerations without overwriting conflicting target state.
+
+Each comparison writes a private versioned plan under `compare-plans/` and
+retains the newest ten. Apply a reviewed plan explicitly:
 
 ```bash
-./ghidra-manager.sh compare harvester harvester-demo
+ghidra-manager compare --apply \
+  /path/to/compare-plans/<timestamp>-source-to-target.json
 ```
 
-The comparison is read-only. It prints source and target totals for functions,
-custom and unresolved function names, structs, enums, data types, defined data,
-globals, classes, namespaces, imports, and exports. Functions are matched only
-when their normalized opcode hash and instruction count identify exactly one
-function in each program. Ambiguous hashes are reported and skipped.
+Apply rechecks target project, PID, function hashes, documentation, and type
+state. It stops on the first rejected operation and deliberately leaves changes
+unsaved in Ghidra for review or undo.
 
-The manager inspects exact matches for missing function names, return and
-parameter types, parameter names, calling conventions, comments, and labels.
-It also compares uniquely named structures and enumerations. Existing target
-metadata is never overwritten: different definitions are reported as
-conflicts, and structures with cyclic, empty, or unresolved field dependencies
-are deferred. Unions, typedefs, and local variables are not transferred in
-this first implementation.
-
-Each comparison writes a private JSON plan under `.managed/compare-plans/` and
-retains the newest ten plans. The final output prints the plan path and the
-exact command needed to apply it:
+## Validation
 
 ```bash
-./ghidra-manager.sh compare --apply \
-  .managed/compare-plans/<timestamp>-harvester-to-harvester-demo.json
+uv sync --locked --group dev
+uv run pytest
+uv run ruff check .
+uv run mypy
+uv build
+uv run ghidra-manager sync --dry-run
+git diff --check
 ```
 
-The manager runs its internal `tools/ghidra_compare.py` engine with the same
-managed Python 3.13 environment used for the bridge. Continue to use
-`ghidra-manager.sh` as the stable entrypoint; no system Python packages are
-required.
-
-Apply rechecks the target project, process, function hashes, documentation, and
-type state before making any change. It stops at the first rejected operation.
-Changes are deliberately left unsaved so they can be reviewed and undone in
-Ghidra; save the target program only after reviewing them. If apply reports a
-partial failure, undo the earlier changes or close the target without saving,
-then generate a fresh plan before retrying.
-
-Use the same configured discovery range for comparison when the plugin does not
-start at its default port:
-
-```bash
-./ghidra-manager.sh compare --base-port 9000 source-project target-project
-```
-
-List the projects recorded by the active Ghidra version:
-
-```bash
-./ghidra-manager.sh projects
-```
-
-This reads Ghidra's `RecentProjects` and `LastOpenedProject` registry rather
-than searching arbitrary directories. Each result shows whether its `.gpr` and
-`.rep` storage is ready, incomplete, or missing; whether it was last opened;
-and whether it currently has a responding MCP port. Stale recent entries remain
-visible as `missing` so they can be diagnosed or removed in Ghidra.
-
-GhidraMCP automatically tries the 16-port range beginning at its configured
-port, which is `8089-8104` by default. Its bridge exposes `list_instances` and
-`connect_instance`; use those tools to select the first project, inspect it,
-switch to the second project, compare it, and switch back for reverse-direction
-checks. Project names must be distinct enough for `connect_instance` to select
-them unambiguously.
+Pull-request CI runs on Ubuntu x64, Windows x64, macOS ARM64, and macOS x64.
+The manually triggered real-integration workflow performs a real sync,
+idempotent resync, status check, and bridge smoke test on the same matrix.
 
 ## Troubleshooting
 
-- **JDK 21 not found:** run `brew install openjdk@21`, then retry `launch`.
-- **GitHub API rate limit:** set `GH_TOKEN` or `GITHUB_TOKEN` and retry.
+- **JDK 21 not found:** set `JAVA_HOME` or put Java 21 on `PATH`.
+- **GitHub rate limit:** set `GH_TOKEN` or `GITHUB_TOKEN`.
 - **MCP connection refused:** open CodeBrowser, enable GhidraMCP, and start its
-  server from the **Tools > GhidraMCP** menu.
-- **Multi-launch timed out:** finish opening CodeBrowser and enabling GhidraMCP
-  in each new window, then run `./ghidra-manager.sh instances` to print ports.
-- **Custom plugin port:** pass the configured value through `--base-port` or
-  set `GHIDRA_MCP_BASE_PORT` before running discovery, comparison, or
-  multi-launch.
-- **Compare target changed:** if the target project, process, function hashes,
-  documentation, or type state changed after the plan was created, rerun
-  `compare` and apply the new plan.
-- **No recorded projects:** launch the managed Ghidra version once so it creates
-  its preferences registry, then open the projects you want it to remember.
-- **Update refused while Ghidra is running:** close the managed Ghidra process
-  before replacing or rolling back its extension.
+  server from **Tools > GhidraMCP**.
+- **Multi-launch timeout:** finish opening CodeBrowser in each project, then run
+  `ghidra-manager instances`.
+- **Update refused:** close all processes running from the managed Ghidra
+  component directory.
+- **Compare target changed:** generate a fresh plan instead of applying stale
+  operations.
+- **No project registry:** launch Ghidra once so it creates platform settings
+  and records a project.

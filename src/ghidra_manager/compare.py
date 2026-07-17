@@ -639,7 +639,7 @@ def generate():
     print(f"Conflicts and deferred items: {len(conflicts)}")
     print(f"Plan saved: {path}")
     print("No changes were applied. Review the plan, then apply it with:")
-    print(f"  ./ghidra-manager.sh compare --apply {path}")
+    print(f"  ghidra-manager compare --apply {path}")
 
 
 def mutation_failed(value):

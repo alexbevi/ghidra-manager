@@ -58,7 +58,9 @@ def default_config_file(
 def _legacy_home(cwd: Path) -> Path | None:
     for candidate in (cwd.resolve(), *cwd.resolve().parents):
         managed = candidate / ".managed"
-        if (candidate / "ghidra-manager.sh").is_file() and managed.is_dir():
+        old_harness = (candidate / "ghidra-manager.sh").is_file()
+        python_checkout = (candidate / "pyproject.toml").is_file()
+        if managed.is_dir() and (old_harness or python_checkout) and (managed / "current").exists():
             return managed
     return None
 

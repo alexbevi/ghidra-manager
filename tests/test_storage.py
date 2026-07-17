@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def _legacy_pair(paths: ManagerPaths, name: str) -> Path:
     return pair
 
 
+@pytest.mark.skipif(os.name == "nt", reason="legacy layout uses Unix symlinks")
 def test_legacy_links_migrate_to_json_without_removal(tmp_path: Path) -> None:
     paths = ManagerPaths(tmp_path)
     current = _legacy_pair(paths, "ghidra-12.1.2__mcp-5.14.2")

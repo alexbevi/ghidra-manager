@@ -33,7 +33,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-exclude = ["src/ghidra_manager/compare.py", "tools/ghidra_compare.py"]
+exclude = ["src/ghidra_manager/compare.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

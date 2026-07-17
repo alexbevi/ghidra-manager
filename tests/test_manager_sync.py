@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import stat
 import zipfile
 from pathlib import Path
@@ -105,7 +106,7 @@ def test_sync_installs_and_is_idempotent(tmp_path: Path) -> None:
     assert state["previous"] is None
     installed = paths.ghidra / "12.1.2/Ghidra/Extensions/GhidraMCP/extension.properties"
     assert installed.is_file()
-    if stat.S_IMODE((paths.ghidra / "12.1.2/ghidraRun").stat().st_mode):
+    if os.name != "nt":
         assert (paths.ghidra / "12.1.2/ghidraRun").stat().st_mode & stat.S_IXUSR
 
     second = manager.sync()
