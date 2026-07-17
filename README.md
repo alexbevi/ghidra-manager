@@ -21,6 +21,23 @@ Install the non-system prerequisites with Homebrew when needed:
 brew install jq uv openjdk@21
 ```
 
+## Cross-Platform CLI Migration Preview
+
+The manager is being ported command by command to an installable Python CLI.
+The existing `ghidra-manager.sh` remains the supported lifecycle entrypoint
+until the Python implementation reaches full parity. The portable MCP instance
+discovery slice is available now:
+
+```bash
+uv sync --group dev
+uv run ghidra-manager instances
+```
+
+Fresh Python CLI installations use the native per-user application-data
+directory on Windows, Linux, and macOS. Set `GHIDRA_MANAGER_HOME` to override
+that location. The final CLI will be installable with `uv tool install` without
+requiring a preinstalled Python interpreter.
+
 ## Install Or Update
 
 Resolve and install the newest compatible stable pair:

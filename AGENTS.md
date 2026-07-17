@@ -75,6 +75,16 @@ bash -n ghidra-manager.sh
 git diff --check
 ```
 
+For Python CLI slices, also run:
+
+```bash
+uv sync --locked --group dev
+uv run pytest
+uv run ruff check .
+uv run mypy
+uv build
+```
+
 - Run ShellCheck and markdownlint when installed.
 - Run the managed-Python syntax check after changing the compare engine:
 
