@@ -31,7 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("status", help="Show installed and upstream versions")
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
-    launch = commands.add_parser("launch", help="Launch one active Ghidra with JDK 21")
+    launch = commands.add_parser(
+        "launch", help="Launch one active Ghidra with JDK 21", add_help=False
+    )
     launch.add_argument("arguments", nargs=argparse.REMAINDER)
     launch_multi = commands.add_parser(
         "launch-multi", help="Launch multiple Ghidra projects and report their MCP ports"
@@ -48,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
     )
     launch_multi.add_argument("projects", nargs="*")
+    bridge = commands.add_parser(
+        "bridge", help="Run the active GhidraMCP stdio bridge", add_help=False
+    )
+    bridge.add_argument("arguments", nargs=argparse.REMAINDER)
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -76,7 +82,12 @@ def _instances(base_port: int) -> int:
 
 
 def run(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    values = list(argv if argv is not None else sys.argv[1:])
+    if values and values[0] in {"launch", "bridge"}:
+        args = build_parser().parse_args([values[0]])
+        args.arguments = values[1:]
+    else:
+        args = build_parser().parse_args(values)
     if args.command == "sync":
         for line in Manager.discover().sync(dry_run=args.dry_run):
             print(line)
@@ -107,6 +118,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         ):
             print(line)
         return 0
+    if args.command == "bridge":
+        return Manager.discover().bridge(args.arguments)
     if args.command == "instances":
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")

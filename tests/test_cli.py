@@ -105,3 +105,14 @@ def test_launch_multi_options(monkeypatch, capsys) -> None:  # type: ignore[no-u
         ["launch-multi", "--count", "2", "--timeout", "30", "--base-port", "9000"]
     ) == 0
     assert capsys.readouterr().out == "GhidraMCP instances ready:\n"
+
+
+def test_bridge_forwards_arguments(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def bridge(self, arguments: list[str]) -> int:
+            assert arguments == ["--help"]
+            return 0
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["bridge", "--help"]) == 0

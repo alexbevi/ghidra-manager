@@ -7,6 +7,7 @@ from ghidra_manager.errors import ManagerError
 from ghidra_manager.platforms import (
     find_java21,
     ghidra_settings_dir,
+    run_bridge,
     run_ghidra,
     start_ghidra_instance,
 )
@@ -77,3 +78,28 @@ def test_detached_unix_launcher_uses_foreground_mode(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8") == (
         f"fg jdk Ghidra     ghidra.GhidraRun {project}"
     )
+
+
+def test_bridge_receives_managed_uv_environment(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    uv = tmp_path / "uv"
+    output = tmp_path / "bridge-env"
+    uv.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n%s\\n%s' \"$*\" \"$UV_PYTHON_INSTALL_DIR\" \"$UV_CACHE_DIR\" > '{output}'\n",
+        encoding="utf-8",
+    )
+    uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr("ghidra_manager.platforms.shutil.which", lambda _: str(uv))
+
+    assert run_bridge(
+        tmp_path / "bridge.py",
+        ["--help"],
+        tmp_path / "python",
+        tmp_path / "cache",
+    ) == 0
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines == [
+        f"run --python 3.13 --managed-python --no-project --script {tmp_path / 'bridge.py'} --help",
+        str(tmp_path / "python"),
+        str(tmp_path / "cache"),
+    ]

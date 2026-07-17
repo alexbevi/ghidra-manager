@@ -19,6 +19,7 @@ from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, Reso
 from ghidra_manager.platforms import (
     find_java21,
     ghidra_settings_dir,
+    run_bridge,
     run_ghidra,
     start_ghidra_instance,
 )
@@ -324,6 +325,28 @@ class Manager:
             f"Detected {len(new_instances)} of {instance_count} new MCP endpoints. "
             "Open CodeBrowser in each new project, enable GhidraMCP, and run instances "
             "to inspect ports."
+        )
+
+    def bridge(self, arguments: list[str]) -> int:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        pair = store.pair(state.current)
+        component = self._mcp_metadata(pair.mcp_version)
+        bridge_name = component.get("bridge_asset")
+        if not bridge_name:
+            raise ManagerError("Active MCP component has no bridge asset metadata")
+        bridge_path = self.paths.mcp / pair.mcp_version / bridge_name
+        if not bridge_path.is_file():
+            raise ManagerError("Active MCP bridge is missing. Run sync to repair it.")
+        self.paths.python.mkdir(parents=True, exist_ok=True)
+        self.paths.uv_cache.mkdir(parents=True, exist_ok=True)
+        return run_bridge(
+            bridge_path,
+            arguments,
+            self.paths.python,
+            self.paths.uv_cache,
         )
 
     @staticmethod

@@ -37,6 +37,7 @@ uv run ghidra-manager rollback
 uv run ghidra-manager projects
 uv run ghidra-manager launch [args...]
 uv run ghidra-manager launch-multi /path/to/first.gpr /path/to/second.gpr
+uv run ghidra-manager bridge --help
 ```
 
 Fresh Python CLI installations use the native per-user application-data
@@ -67,6 +68,9 @@ fallbacks, and selects `ghidraRun.bat` on Windows or `ghidraRun` elsewhere.
 Multi-launch uses a detached foreground Ghidra launcher appropriate to each OS,
 keeps per-instance logs under the managed state home, excludes baseline MCP
 PIDs, and waits for the requested number of new endpoints.
+The bridge continues to run the retained upstream script through uv-managed
+Python 3.13 with its Python installation and cache kept under the selected
+manager state home.
 
 ## Install Or Update
 

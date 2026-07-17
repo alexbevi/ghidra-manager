@@ -169,3 +169,32 @@ def start_ghidra_instance(
             )
     except OSError as exc:
         raise ManagerError(f"Failed to launch Ghidra instance: {exc}") from exc
+
+
+def run_bridge(
+    script: Path,
+    arguments: list[str],
+    python_dir: Path,
+    cache_dir: Path,
+) -> int:
+    uv = shutil.which("uv")
+    if not uv:
+        raise ManagerError("Required command not found: uv")
+    environment = os.environ.copy()
+    environment["UV_PYTHON_INSTALL_DIR"] = str(python_dir)
+    environment["UV_CACHE_DIR"] = str(cache_dir)
+    command = [
+        uv,
+        "run",
+        "--python",
+        "3.13",
+        "--managed-python",
+        "--no-project",
+        "--script",
+        str(script),
+        *arguments,
+    ]
+    try:
+        return subprocess.run(command, check=False, env=environment).returncode
+    except OSError as exc:
+        raise ManagerError(f"Failed to run GhidraMCP bridge: {exc}") from exc
