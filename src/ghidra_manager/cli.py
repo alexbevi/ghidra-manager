@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("status", help="Show installed and upstream versions")
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
+    commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -69,6 +70,11 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "rollback":
         for line in Manager.discover().rollback():
+            print(line)
+        return 0
+    if args.command == "projects":
+        base_port = int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT))
+        for line in Manager.discover().projects(base_port=base_port):
             print(line)
         return 0
     if args.command == "instances":

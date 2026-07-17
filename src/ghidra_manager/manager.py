@@ -13,7 +13,9 @@ from pathlib import Path
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
+from ghidra_manager.mcp import DEFAULT_PORT, Instance, discover_instances
 from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, ResolvedPair
+from ghidra_manager.platforms import ghidra_settings_dir
 from ghidra_manager.processes import managed_ghidra_running
 from ghidra_manager.releases import (
     ReleaseClient,
@@ -34,6 +36,7 @@ class Manager:
     paths: ManagerPaths
     client: ReleaseClient
     process_check: Callable[[Path], bool] = managed_ghidra_running
+    instance_discovery: Callable[[int], list[Instance]] = discover_instances
 
     @classmethod
     def discover(cls) -> Manager:
@@ -168,6 +171,66 @@ class Manager:
             f"Rolled back to Ghidra {previous.ghidra_version} "
             f"with GhidraMCP {previous.mcp_version}."
         ]
+
+    def projects(self, *, base_port: int = DEFAULT_PORT) -> list[str]:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        pair = store.pair(state.current)
+        application = self.paths.ghidra / pair.ghidra_version / "Ghidra/application.properties"
+        if not application.is_file():
+            raise ManagerError("Active Ghidra application metadata is missing")
+        release_name = read_properties(application).get("application.release.name")
+        if not release_name:
+            raise ManagerError("Active Ghidra release name is missing")
+        settings_dir = ghidra_settings_dir(pair.ghidra_version, release_name)
+        preferences = settings_dir / "preferences"
+        if not preferences.is_file():
+            raise ManagerError(
+                f"No Ghidra project registry found at {preferences}. Launch Ghidra once first."
+            )
+        values = read_properties(preferences)
+        recent = values.get("RecentProjects", "").split(";")
+        last_opened = self._project_base(values.get("LastOpenedProject", ""))
+        known = ([last_opened] if last_opened else []) + recent
+        unique: list[str] = []
+        for item in known:
+            base = self._project_base(item)
+            if base and base not in unique:
+                unique.append(base)
+        if not unique:
+            return [f"Ghidra has no recorded projects in {preferences}."]
+        active = {instance.project: instance for instance in self.instance_discovery(base_port)}
+        lines = [f"Projects known to Ghidra {pair.ghidra_version}:"]
+        for base in unique:
+            base_path = Path(base)
+            project_file = base_path.with_suffix(".gpr")
+            repository = base_path.with_suffix(".rep")
+            if project_file.is_file() and repository.is_dir():
+                storage = "ready"
+            elif project_file.is_file() or repository.is_dir():
+                storage = "incomplete"
+            else:
+                storage = "missing"
+            last_status = "last-opened" if base == last_opened else "recent"
+            instance = active.get(base_path.name)
+            active_status = (
+                f"active MCP port {instance.port} (PID {instance.pid})"
+                if instance
+                else "inactive"
+            )
+            lines.append(
+                f"{base_path.name} | {storage} | {last_status} | "
+                f"{active_status} | {project_file}"
+            )
+        lines.append(f"{len(unique)} recorded projects from {preferences}")
+        return lines
+
+    @staticmethod
+    def _project_base(value: str) -> str:
+        result = value.removeprefix("ghidra:")
+        return result.removesuffix(".gpr")
 
     def _remote_lines(self, resolved: ResolvedPair) -> list[str]:
         lines = [

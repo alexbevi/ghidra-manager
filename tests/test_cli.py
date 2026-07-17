@@ -60,3 +60,15 @@ def test_rollback_output(monkeypatch, capsys) -> None:  # type: ignore[no-untype
 
     assert cli.run(["rollback"]) == 0
     assert capsys.readouterr().out == "Rolled back.\n"
+
+
+def test_projects_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def projects(self, *, base_port: int) -> list[str]:
+            assert base_port == 8089
+            return ["Projects known to Ghidra 12.1.2:", "demo"]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["projects"]) == 0
+    assert capsys.readouterr().out == "Projects known to Ghidra 12.1.2:\ndemo\n"
