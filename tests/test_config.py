@@ -36,7 +36,9 @@ def test_existing_checkout_is_adopted_and_persisted(tmp_path: Path) -> None:
     managed = checkout / ".managed"
     managed.mkdir(parents=True)
     (managed / "current").touch()
-    (checkout / "ghidra-manager.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (checkout / "pyproject.toml").write_text(
+        '[project]\nname = "ghidra-manager"\n', encoding="utf-8"
+    )
 
     paths = ManagerPaths.discover(
         cwd=checkout,
