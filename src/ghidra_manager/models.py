@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+DoctorLevel = Literal["ok", "warning", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorCheck:
+    name: str
+    level: DoctorLevel
+    detail: str
 
 
 @dataclass(frozen=True, slots=True)

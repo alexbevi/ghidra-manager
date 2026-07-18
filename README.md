@@ -56,6 +56,19 @@ Show active, retained, compatible, and newest upstream versions:
 ghidra-manager status
 ```
 
+Check local reverse-engineering readiness without resolving upstream releases:
+
+```bash
+ghidra-manager doctor
+ghidra-manager doctor ripper --program RIPPER.LE
+ghidra-manager doctor ripper --program RIPPER.LE --json
+```
+
+`doctor` verifies the active pair, managed installation and extension, JDK 21,
+recorded project, responding MCP identity and versions, expected open program,
+endpoint catalog, and analysis status. Errors produce a nonzero exit code;
+warnings remain successful so partial environments can be inspected.
+
 Return to the retained previous pair:
 
 ```bash
@@ -230,6 +243,8 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
   not only its display name.
 - **Open timeout:** finish opening CodeBrowser, enable GhidraMCP, and inspect the
   retained log path reported by `open`.
+- **Doctor not ready:** address each `ERROR` check, then rerun the same project
+  and program selection before starting a write workflow.
 - **Multi-launch timeout:** finish opening CodeBrowser in each project, then run
   `ghidra-manager instances`.
 - **Update refused:** close all processes running from the managed Ghidra

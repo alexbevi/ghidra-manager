@@ -12,6 +12,8 @@ do not hardcode release versions or platform paths.
 ## Choose the workflow
 
 - Inspect installed and upstream versions with `ghidra-manager status`.
+- Check local RE readiness with `ghidra-manager doctor [PROJECT]` and add
+  `--program PROGRAM` when one exact open program is required.
 - Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when
   the user intends to install or update managed components.
 - List recorded project paths with `ghidra-manager projects`.
@@ -22,7 +24,8 @@ do not hardcode release versions or platform paths.
   `codex mcp add ghidra -- ghidra-manager bridge`.
 
 `projects` reports Ghidra's settings registry, not live processes. Use
-`instances` as the runtime truth surface.
+`instances` as the runtime truth surface. Prefer `doctor --json` when Codex
+needs structured readiness details without upstream release resolution.
 
 ## Launch and verify projects
 

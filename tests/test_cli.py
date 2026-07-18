@@ -2,6 +2,7 @@ from pathlib import Path
 
 from ghidra_manager import cli
 from ghidra_manager.mcp import Instance
+from ghidra_manager.models import DoctorCheck
 
 
 def test_instances_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -53,6 +54,37 @@ def test_status_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-
     assert capsys.readouterr().out == (
         "Active pair:        not installed\nUpstream Ghidra:    12.2\n"
     )
+
+
+def test_doctor_json_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def doctor(
+            self, project: str | None, *, program: str | None, base_port: int
+        ) -> list[DoctorCheck]:
+            assert (project, program, base_port) == ("demo", "DEMO.EXE", 9000)
+            return [DoctorCheck("analysis", "ok", "DEMO.EXE analyzed")]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(
+        ["doctor", "demo", "--program", "DEMO.EXE", "--base-port", "9000", "--json"]
+    ) == 0
+    output = capsys.readouterr().out
+    assert '"ready": true' in output
+    assert '"name": "analysis"' in output
+
+
+def test_doctor_errors_return_failure(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def doctor(
+            self, project: str | None, *, program: str | None, base_port: int
+        ) -> list[DoctorCheck]:
+            return [DoctorCheck("instance", "error", "not responding")]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["doctor"]) == 1
+    assert "Doctor result: not ready" in capsys.readouterr().out
 
 
 def test_sync_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]

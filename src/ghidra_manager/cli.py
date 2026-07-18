@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Sequence
@@ -34,6 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="resolve without changing managed state"
     )
     commands.add_parser("status", help="Show installed and upstream versions")
+    doctor = commands.add_parser("doctor", help="Check local reverse-engineering readiness")
+    doctor.add_argument("project", nargs="?")
+    doctor.add_argument("--program")
+    doctor.add_argument("--json", action="store_true")
+    doctor.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
     open_project = commands.add_parser(
@@ -127,6 +137,34 @@ def run(argv: Sequence[str] | None = None) -> int:
         for line in Manager.discover().status_lines():
             print(line)
         return 0
+    if args.command == "doctor":
+        checks = Manager.discover().doctor(
+            args.project, program=args.program, base_port=args.base_port
+        )
+        ready = not any(check.level == "error" for check in checks)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "ready": ready,
+                        "checks": [
+                            {
+                                "name": check.name,
+                                "level": check.level,
+                                "detail": check.detail,
+                            }
+                            for check in checks
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            for check in checks:
+                print(f"{check.level.upper():7} {check.name}: {check.detail}")
+            result = "ready" if ready else "not ready"
+            print(f"Doctor result: {result}")
+        return 0 if ready else 1
     if args.command == "rollback":
         for line in Manager.discover().rollback():
             print(line)

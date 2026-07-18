@@ -16,8 +16,21 @@ from ghidra_manager import compare as compare_engine
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
-from ghidra_manager.mcp import DEFAULT_PORT, Instance, discover_instances
-from ghidra_manager.models import ManagerState, PairMetadata, ReleaseAsset, ResolvedPair
+from ghidra_manager.mcp import (
+    DEFAULT_PORT,
+    Instance,
+    discover_instances,
+    probe_analysis,
+    probe_server,
+)
+from ghidra_manager.models import (
+    DoctorCheck,
+    DoctorLevel,
+    ManagerState,
+    PairMetadata,
+    ReleaseAsset,
+    ResolvedPair,
+)
 from ghidra_manager.platforms import (
     find_java21,
     ghidra_settings_dir,
@@ -95,6 +108,253 @@ class Manager:
                 f"Ghidra {resolved.ghidra_version}."
             )
         return lines
+
+    def doctor(
+        self,
+        project: str | None = None,
+        *,
+        program: str | None = None,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[DoctorCheck]:
+        checks: list[DoctorCheck] = []
+        store = StateStore(self.paths)
+        try:
+            state = store.load()
+        except ManagerError as exc:
+            return [DoctorCheck("active-pair", "error", str(exc))]
+        if state.current is None:
+            return [DoctorCheck("active-pair", "error", "not installed; run sync")]
+        try:
+            pair = store.pair(state.current)
+        except ManagerError as exc:
+            return [DoctorCheck("active-pair", "error", str(exc))]
+        checks.append(
+            DoctorCheck(
+                "active-pair",
+                "ok",
+                f"Ghidra {pair.ghidra_version} with GhidraMCP {pair.mcp_version}",
+            )
+        )
+
+        install = self.paths.ghidra / pair.ghidra_version
+        if self._valid_ghidra(install, pair.ghidra_version):
+            checks.append(DoctorCheck("installation", "ok", str(install)))
+        else:
+            checks.append(
+                DoctorCheck("installation", "error", f"missing or invalid: {install}")
+            )
+        try:
+            installed_mcp = self._installed_mcp_version(pair.ghidra_version)
+        except ManagerError as exc:
+            installed_mcp = None
+            extension_detail = str(exc)
+        else:
+            extension_detail = (
+                (
+                    f"GhidraMCP {installed_mcp}"
+                    if installed_mcp == pair.mcp_version
+                    else f"GhidraMCP {installed_mcp}; expected {pair.mcp_version}"
+                )
+                if installed_mcp is not None
+                else "GhidraMCP extension is missing"
+            )
+        extension_level: DoctorLevel = (
+            "ok" if installed_mcp == pair.mcp_version else "error"
+        )
+        checks.append(DoctorCheck("extension", extension_level, extension_detail))
+
+        try:
+            java_home = find_java21()
+        except ManagerError as exc:
+            checks.append(DoctorCheck("jdk", "error", str(exc)))
+        else:
+            checks.append(DoctorCheck("jdk", "ok", f"JDK 21 at {java_home}"))
+
+        resolved_project: Path | None = None
+        if project:
+            try:
+                resolved_project = self._resolve_project(project)
+            except ManagerError as exc:
+                checks.append(DoctorCheck("project", "error", str(exc)))
+            else:
+                checks.append(DoctorCheck("project", "ok", str(resolved_project)))
+        else:
+            try:
+                _, preferences, recorded, _ = self._project_registry()
+            except ManagerError as exc:
+                checks.append(DoctorCheck("projects", "warning", str(exc)))
+            else:
+                level: DoctorLevel = "ok" if recorded else "warning"
+                checks.append(
+                    DoctorCheck(
+                        "projects",
+                        level,
+                        f"{len(recorded)} recorded projects in {preferences}",
+                    )
+                )
+
+        try:
+            instances = self.instance_discovery(base_port)
+        except ManagerError as exc:
+            checks.append(DoctorCheck("instances", "error", str(exc)))
+            return checks
+        selected: Instance | None = None
+        if resolved_project:
+            matches = [item for item in instances if item.project == resolved_project.stem]
+            if len(matches) == 1:
+                selected = matches[0]
+                checks.append(
+                    DoctorCheck(
+                        "instance",
+                        "ok",
+                        f"PID {selected.pid} on {selected.url}",
+                    )
+                )
+            elif matches:
+                checks.append(
+                    DoctorCheck(
+                        "instance",
+                        "error",
+                        f"multiple MCP instances report project {resolved_project.stem}",
+                    )
+                )
+            else:
+                checks.append(
+                    DoctorCheck(
+                        "instance",
+                        "error",
+                        f"no MCP instance reports project {resolved_project.stem}",
+                    )
+                )
+        else:
+            level = "ok" if instances else "warning"
+            checks.append(
+                DoctorCheck(
+                    "instances",
+                    level,
+                    f"{len(instances)} responding on ports {base_port}-{base_port + 15}",
+                )
+            )
+            for instance in instances:
+                self._doctor_server(
+                    checks,
+                    instance,
+                    pair,
+                    name=f"mcp-server:{instance.port}",
+                )
+
+        if selected:
+            self._doctor_instance(checks, selected, pair, program)
+        elif program:
+            checks.append(
+                DoctorCheck(
+                    "program", "error", "--program requires one responding project instance"
+                )
+            )
+        return checks
+
+    @staticmethod
+    def _doctor_instance(
+        checks: list[DoctorCheck],
+        instance: Instance,
+        pair: PairMetadata,
+        program: str | None,
+    ) -> None:
+        Manager._doctor_server(checks, instance, pair)
+
+        selected_program = program
+        if program:
+            if program in instance.programs:
+                checks.append(DoctorCheck("program", "ok", f"{program} is open"))
+            else:
+                available = ", ".join(instance.programs) or "none"
+                checks.append(
+                    DoctorCheck(
+                        "program",
+                        "error",
+                        f"{program} is not open; reported programs: {available}",
+                    )
+                )
+                selected_program = None
+        elif len(instance.programs) == 1:
+            selected_program = instance.programs[0]
+            checks.append(DoctorCheck("program", "ok", f"{selected_program} is open"))
+        elif instance.programs:
+            checks.append(
+                DoctorCheck(
+                    "program",
+                    "warning",
+                    f"multiple programs are open: {', '.join(instance.programs)}; use --program",
+                )
+            )
+        else:
+            checks.append(DoctorCheck("program", "warning", "no open program reported"))
+
+        if selected_program:
+            analysis = probe_analysis(instance.port, selected_program)
+            if analysis is None:
+                checks.append(DoctorCheck("analysis", "error", "analysis status probe failed"))
+            elif analysis.program != selected_program:
+                checks.append(
+                    DoctorCheck(
+                        "analysis",
+                        "error",
+                        f"analysis probe returned {analysis.program}, expected {selected_program}",
+                    )
+                )
+            elif analysis.analyzing:
+                checks.append(
+                    DoctorCheck("analysis", "error", f"{selected_program} is still analyzing")
+                )
+            elif not analysis.analyzed:
+                checks.append(
+                    DoctorCheck("analysis", "error", f"{selected_program} is not analyzed")
+                )
+            else:
+                checks.append(
+                    DoctorCheck(
+                        "analysis",
+                        "ok",
+                        f"{selected_program} analyzed; {analysis.function_count} functions",
+                    )
+                )
+
+    @staticmethod
+    def _doctor_server(
+        checks: list[DoctorCheck],
+        instance: Instance,
+        pair: PairMetadata,
+        *,
+        name: str = "mcp-server",
+    ) -> None:
+        server = probe_server(instance.port)
+        if server is None:
+            checks.append(DoctorCheck(name, "error", "version probe failed"))
+        else:
+            mismatches = []
+            if server.plugin_version != pair.mcp_version:
+                mismatches.append(
+                    f"plugin {server.plugin_version}, expected {pair.mcp_version}"
+                )
+            if server.ghidra_version != pair.ghidra_version:
+                mismatches.append(
+                    f"Ghidra {server.ghidra_version}, expected {pair.ghidra_version}"
+                )
+            if not server.java_version.startswith("21."):
+                mismatches.append(f"Java {server.java_version}, expected 21.x")
+            if server.endpoint_count <= 0:
+                mismatches.append("endpoint catalog is empty")
+            if mismatches:
+                checks.append(DoctorCheck(name, "error", "; ".join(mismatches)))
+            else:
+                checks.append(
+                    DoctorCheck(
+                        name,
+                        "ok",
+                        f"GhidraMCP {server.plugin_version}; {server.endpoint_count} endpoints; "
+                        f"Java {server.java_version}",
+                    )
+                )
 
     def sync(self, *, dry_run: bool = False) -> list[str]:
         lines = ["Resolving stable upstream releases..."]
