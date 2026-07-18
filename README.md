@@ -1,10 +1,10 @@
 # Ghidra Manager
 
-Ghidra Manager is a cross-platform CLI for installing and running a compatible
-pair of [Ghidra](https://github.com/NationalSecurityAgency/ghidra) and
-[GhidraMCP](https://github.com/bethington/ghidra-mcp). It tracks stable GitHub
-releases, requires GitHub-published SHA-256 digests, reads compatibility from
-the extension itself, and retains the active pair plus one rollback pair.
+Ghidra Manager is a cross-platform CLI for installing Ghidra and compiling a
+curated set of extensions for that exact release. It tracks stable GitHub
+releases, requires GitHub-published SHA-256 digests for release assets, builds
+plugins from immutable release commits, and retains the active installation
+plus one complete rollback pair.
 
 The `ghidra-manager` Python command is the only supported user-facing
 entrypoint on Windows, Linux, and macOS.
@@ -39,7 +39,9 @@ JDK discovery checks `JAVA_HOME` and `PATH` on every platform. macOS also uses
 
 ## Install, Update, And Roll Back
 
-Resolve and install the newest compatible stable pair:
+Resolve and install the newest stable Ghidra release. A fresh installation has
+no plugins; later syncs rebuild the active pair's selected plugins for the new
+Ghidra release:
 
 ```bash
 ghidra-manager sync
@@ -51,7 +53,7 @@ Preview release selection without changing managed state:
 ghidra-manager sync --dry-run
 ```
 
-Show active, retained, compatible, and newest upstream versions:
+Show active, retained, and newest upstream versions:
 
 ```bash
 ghidra-manager status
@@ -65,7 +67,7 @@ ghidra-manager doctor ripper --program RIPPER.LE
 ghidra-manager doctor ripper --program RIPPER.LE --json
 ```
 
-`doctor` verifies the active pair, managed installation and extension, JDK 21,
+`doctor` verifies the active pair, managed installation and MCP plugin, JDK 21,
 recorded project, responding MCP identity and versions, expected open program,
 endpoint catalog, and analysis status. Errors produce a nonzero exit code;
 warnings remain successful so partial environments can be inspected.
@@ -76,9 +78,9 @@ Return to the retained previous pair:
 ghidra-manager rollback
 ```
 
-Close managed Ghidra processes before syncing or rolling back. When current
-and previous pairs share one Ghidra release, rollback reinstalls the retained
-extension before changing active state.
+Close managed Ghidra processes before syncing or rolling back. Rollback
+reinstalls the retained pair's complete plugin set before changing active
+state, including when both pairs share one Ghidra release.
 
 `GH_TOKEN` or `GITHUB_TOKEN` may authenticate GitHub API requests.
 
@@ -89,12 +91,32 @@ List the reviewed plugins available from the manager's bundled registry:
 ```bash
 ghidra-manager plugins discover
 ghidra-manager plugins discover --json
+ghidra-manager plugins list
+ghidra-manager plugins list --json
 ```
 
 The initial catalog contains `mcp` and `ghidra-lx-loader`. Discovery is
 read-only and works before Ghidra is installed. Plugin versions are resolved
 from stable GitHub releases when a plugin is installed or updated rather than
 being pinned in the registry.
+
+Install or update one plugin for the active Ghidra release:
+
+```bash
+ghidra-manager sync
+ghidra-manager plugins install mcp
+ghidra-manager plugins install ghidra-lx-loader
+```
+
+Plugin installation requires an active Ghidra installation and refuses to
+replace extensions while a manager-owned Ghidra process is running. The
+manager resolves the latest stable plugin release tag to its immutable commit,
+uses the target Ghidra distribution's Gradle wrapper, validates the generated
+extension ZIP, then activates the complete selected set transactionally.
+
+Install `mcp` before using `bridge`, `instances`, `open`, `launch-multi`, or
+`compare`. Install `ghidra-lx-loader` before importing LE/LX binaries such as
+DOS/4GW or OS/2 Linear Executables.
 
 ## Managed State
 
@@ -109,9 +131,10 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 ```text
 <manager-home>/
 ├── ghidra/<version>/
-├── ghidra-mcp/<version>/
-├── pairs/<ghidra-and-mcp-versions>/metadata.json
+├── plugins/<plugin>/<ghidra-version>/<source-commit>/
+├── pairs/<ghidra-and-plugin-manifest>/metadata.json
 ├── state.json
+├── gradle-cache/
 ├── launch-logs/
 ├── compare-plans/
 ├── python/
@@ -119,14 +142,24 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 ```
 
 `state.json` records the current and previous pair IDs without requiring
-symlinks. Downloads and extension installation are staged and validated before
-an atomic state replacement. Failed extension replacement restores its backup.
+symlinks. Each pair records its exact Ghidra release and sorted plugin manifest.
+Downloads, builds, and extension installation are validated before an atomic
+state replacement. Failed extension replacement restores every affected
+plugin directory.
 
 When first run from a checkout containing the former `.managed/` layout, the
 CLI adopts that directory in place and converts valid `current` and `previous`
 pair metadata into versioned JSON. Legacy symlinks are not required afterward.
+Existing GhidraMCP pairs migrate with `mcp` selected and retain their legacy
+artifact paths until neither current nor previous references them.
 
 ## Run Ghidra And GhidraMCP
+
+Install the MCP plugin first if it is not already selected:
+
+```bash
+ghidra-manager plugins install mcp
+```
 
 List recorded projects to resolve the exact project path:
 
@@ -254,6 +287,10 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
 - **GitHub rate limit:** set `GH_TOKEN` or `GITHUB_TOKEN`.
 - **MCP connection refused:** open CodeBrowser, enable GhidraMCP, and start its
   server from **Tools > GhidraMCP**.
+- **MCP plugin is not installed:** close managed Ghidra processes, run
+  `ghidra-manager plugins install mcp`, then relaunch Ghidra.
+- **Plugin build failed:** inspect the reported Gradle output and keep using the
+  unchanged active pair; the failed build is never activated.
 - **Invalid project:** pass the `.gpr` path reported by the `projects` command,
   not only its display name.
 - **Open timeout:** finish opening CodeBrowser, enable GhidraMCP, and inspect the

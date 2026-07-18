@@ -31,6 +31,8 @@ source of truth for installation, updates, runtime commands, and rollback.
 - Stage and verify downloads before changing active state.
 - Read Ghidra compatibility from each extension's `extension.properties`.
 - Install only the exact Ghidra version declared by the plugin.
+- Build curated plugins from immutable stable-release commits with the target
+  managed Ghidra distribution's Gradle wrapper.
 - Install extensions under `Ghidra/Extensions/<plugin>` in the managed release.
 - Refuse replacement while a manager-owned Ghidra process is running.
 - Keep current and previous pairs usable. Shared-Ghidra rollback must reinstall
@@ -40,22 +42,23 @@ source of truth for installation, updates, runtime commands, and rollback.
 
 ## Adding A Plugin
 
-Add a future plugin as another explicit managed component:
+Add a future plugin as another reviewed registry entry:
 
-1. Add repository and asset-selection constants beside existing upstreams.
-2. Implement a narrowly named stable release resolver recording URL, tag,
-   version, and SHA-256 digest.
-3. Validate extension identity, version, archive layout, and declared Ghidra
+1. Add one explicit entry to the bundled plugin registry; do not accept user
+   supplied repositories or build commands.
+2. Resolve only the newest stable GitHub release tag, dereference it to one
+   immutable commit, and record the source archive digest.
+3. Use the controlled Ghidra Gradle build adapter and require exactly one
+   configured output artifact.
+4. Validate extension identity, archive root, and the exact declared Ghidra
    version before staging.
-4. Store payloads under the manager home with versioned JSON metadata.
-5. Install with transaction backup and cleanup restoration.
-6. Extend pair metadata and retention for every referenced component.
-7. Add runtime commands only for a separate process or client entrypoint.
-8. Update README prerequisites, commands, update/rollback behavior, and
+5. Store the artifact and runtime files under the manager home with versioned
+   JSON metadata.
+6. Activate the complete plugin set with transaction backup and restoration.
+7. Extend pair metadata and retention for every referenced artifact.
+8. Add runtime commands only for a separate process or client entrypoint.
+9. Update README prerequisites, commands, update/rollback behavior, and
    troubleshooting in the same commit.
-
-Do not generalize into a plugin framework before a second plugin demonstrates
-shared behavior.
 
 ## Validation
 

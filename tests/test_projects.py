@@ -1,18 +1,18 @@
 from pathlib import Path
 
-from test_manager_sync import SyncClient
-
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore
+from tests.plugin_fixtures import managed_pair
+from tests.test_manager_sync import SyncClient
 
 
 def test_projects_reports_storage_and_active_state(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     paths = ManagerPaths(tmp_path / "managed")
     store = StateStore(paths)
-    pair = PairMetadata("pair", "12.1.2", "5.14.2", "ghidra-tag", "mcp-tag")
+    pair = managed_pair()
     store.save_pair(pair)
     store.save(ManagerState(current="pair"))
     application = paths.ghidra / "12.1.2/Ghidra/application.properties"

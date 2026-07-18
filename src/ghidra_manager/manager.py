@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -28,21 +29,32 @@ from ghidra_manager.models import (
     DoctorLevel,
     ManagerState,
     PairMetadata,
+    PluginMetadata,
     ReleaseAsset,
+    ResolvedGhidra,
     ResolvedPair,
+    ResolvedPluginSource,
 )
 from ghidra_manager.platforms import (
     find_java21,
     ghidra_settings_dir,
     run_bridge,
     run_ghidra,
+    run_plugin_build,
     start_ghidra_instance,
 )
-from ghidra_manager.plugins import load_registry
+from ghidra_manager.plugins import (
+    PluginDefinition,
+    load_registry,
+    plugin_definition,
+    resolve_plugin_source,
+    validate_plugin_archive,
+)
 from ghidra_manager.processes import managed_ghidra_running
 from ghidra_manager.releases import (
     ReleaseClient,
-    extension_properties,
+    file_digest,
+    resolve_ghidra,
     resolve_pair,
     verify_digest,
 )
@@ -73,12 +85,34 @@ class Manager:
 
     def plugin_discovery(self) -> list[dict[str, object]]:
         """Return the bundled plugin catalog with active selection state."""
-        state = StateStore(self.paths).load()
-        selected = {"mcp"} if state.current is not None else set()
-        return [
-            plugin.as_dict(selected=plugin.plugin_id in selected)
-            for plugin in load_registry()
-        ]
+        store = StateStore(self.paths)
+        state = store.load()
+        selected = (
+            {plugin.plugin_id for plugin in store.pair(state.current).plugins}
+            if state.current
+            else set()
+        )
+        return [plugin.as_dict(selected=plugin.plugin_id in selected) for plugin in load_registry()]
+
+    def plugin_list(self) -> dict[str, object]:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            return {"ghidra_version": None, "plugins": []}
+        pair = store.pair(state.current)
+        return {
+            "ghidra_version": pair.ghidra_version,
+            "plugins": [
+                {
+                    "id": plugin.plugin_id,
+                    "version": plugin.version,
+                    "tag": plugin.tag,
+                    "commit": plugin.commit,
+                    "extension_root": plugin.extension_root,
+                }
+                for plugin in pair.plugins
+            ],
+        }
 
     def status_lines(self) -> list[str]:
         store = StateStore(self.paths)
@@ -86,37 +120,31 @@ class Manager:
         lines: list[str] = []
         if state.current:
             current = store.pair(state.current)
-            installed = self._installed_mcp_version(current.ghidra_version) or "missing"
-            lines.extend(
-                [
-                    f"Active Ghidra:      {current.ghidra_version}",
-                    f"Active GhidraMCP:   {current.mcp_version}",
-                    f"Installed extension: {installed}",
-                ]
-            )
+            lines.append(f"Active Ghidra:      {current.ghidra_version}")
+            if current.plugins:
+                for plugin in current.plugins:
+                    installed = (
+                        "installed"
+                        if self._installed_plugin_matches(current, plugin)
+                        else "missing"
+                    )
+                    lines.append(
+                        f"Active plugin:      {plugin.plugin_id} {plugin.version} ({installed})"
+                    )
+            else:
+                lines.append("Active plugins:     none")
         else:
             lines.append("Active pair:        not installed")
         if state.previous:
             previous = store.pair(state.previous)
+            plugin_ids = ", ".join(plugin.plugin_id for plugin in previous.plugins) or "none"
             lines.append(
-                f"Previous pair:      Ghidra {previous.ghidra_version} "
-                f"with GhidraMCP {previous.mcp_version}"
+                f"Previous pair:      Ghidra {previous.ghidra_version}; plugins {plugin_ids}"
             )
         else:
             lines.append("Previous pair:      none")
-        resolved = self.resolved_pair()
-        lines.extend(
-            [
-                f"Upstream Ghidra:    {resolved.ghidra_latest_version}",
-                f"Compatible Ghidra:  {resolved.ghidra_version}",
-                f"Upstream GhidraMCP: {resolved.mcp_version}",
-            ]
-        )
-        if resolved.ghidra_latest_version != resolved.ghidra_version:
-            lines.append(
-                f"Update held: GhidraMCP {resolved.mcp_version} declares "
-                f"Ghidra {resolved.ghidra_version}."
-            )
+        resolved = resolve_ghidra(self.client)
+        lines.append(f"Upstream Ghidra:    {resolved.version}")
         return lines
 
     def doctor(
@@ -142,7 +170,8 @@ class Manager:
             DoctorCheck(
                 "active-pair",
                 "ok",
-                f"Ghidra {pair.ghidra_version} with GhidraMCP {pair.mcp_version}",
+                f"Ghidra {pair.ghidra_version}; "
+                f"plugins {', '.join(item.plugin_id for item in pair.plugins) or 'none'}",
             )
         )
 
@@ -150,28 +179,34 @@ class Manager:
         if self._valid_ghidra(install, pair.ghidra_version):
             checks.append(DoctorCheck("installation", "ok", str(install)))
         else:
+            checks.append(DoctorCheck("installation", "error", f"missing or invalid: {install}"))
+        mcp = pair.plugin("mcp")
+        if mcp is None:
             checks.append(
-                DoctorCheck("installation", "error", f"missing or invalid: {install}")
-            )
-        try:
-            installed_mcp = self._installed_mcp_version(pair.ghidra_version)
-        except ManagerError as exc:
-            installed_mcp = None
-            extension_detail = str(exc)
-        else:
-            extension_detail = (
-                (
-                    f"GhidraMCP {installed_mcp}"
-                    if installed_mcp == pair.mcp_version
-                    else f"GhidraMCP {installed_mcp}; expected {pair.mcp_version}"
+                DoctorCheck(
+                    "extension",
+                    "error",
+                    "MCP plugin is not installed; run ghidra-manager plugins install mcp",
                 )
-                if installed_mcp is not None
-                else "GhidraMCP extension is missing"
             )
-        extension_level: DoctorLevel = (
-            "ok" if installed_mcp == pair.mcp_version else "error"
-        )
-        checks.append(DoctorCheck("extension", extension_level, extension_detail))
+        else:
+            try:
+                installed_mcp = self._installed_mcp_version(pair.ghidra_version)
+            except ManagerError as exc:
+                installed_mcp = None
+                extension_detail = str(exc)
+            else:
+                extension_detail = (
+                    (
+                        f"GhidraMCP {installed_mcp}"
+                        if installed_mcp == mcp.version
+                        else f"GhidraMCP {installed_mcp}; expected {mcp.version}"
+                    )
+                    if installed_mcp is not None
+                    else "GhidraMCP extension is missing"
+                )
+            extension_level: DoctorLevel = "ok" if installed_mcp == mcp.version else "error"
+            checks.append(DoctorCheck("extension", extension_level, extension_detail))
 
         try:
             java_home = find_java21()
@@ -202,6 +237,9 @@ class Manager:
                         f"{len(recorded)} recorded projects in {preferences}",
                     )
                 )
+
+        if mcp is None:
+            return checks
 
         try:
             instances = self.instance_discovery(base_port)
@@ -250,11 +288,12 @@ class Manager:
                     checks,
                     instance,
                     pair,
+                    mcp,
                     name=f"mcp-server:{instance.port}",
                 )
 
         if selected:
-            self._doctor_instance(checks, selected, pair, program)
+            self._doctor_instance(checks, selected, pair, mcp, program)
         elif program:
             checks.append(
                 DoctorCheck(
@@ -268,9 +307,10 @@ class Manager:
         checks: list[DoctorCheck],
         instance: Instance,
         pair: PairMetadata,
+        mcp: PluginMetadata,
         program: str | None,
     ) -> None:
-        Manager._doctor_server(checks, instance, pair)
+        Manager._doctor_server(checks, instance, pair, mcp)
 
         selected_program = program
         if program:
@@ -334,6 +374,7 @@ class Manager:
         checks: list[DoctorCheck],
         instance: Instance,
         pair: PairMetadata,
+        mcp: PluginMetadata,
         *,
         name: str = "mcp-server",
     ) -> None:
@@ -342,14 +383,10 @@ class Manager:
             checks.append(DoctorCheck(name, "error", "version probe failed"))
         else:
             mismatches = []
-            if server.plugin_version != pair.mcp_version:
-                mismatches.append(
-                    f"plugin {server.plugin_version}, expected {pair.mcp_version}"
-                )
+            if server.plugin_version != mcp.version:
+                mismatches.append(f"plugin {server.plugin_version}, expected {mcp.version}")
             if server.ghidra_version != pair.ghidra_version:
-                mismatches.append(
-                    f"Ghidra {server.ghidra_version}, expected {pair.ghidra_version}"
-                )
+                mismatches.append(f"Ghidra {server.ghidra_version}, expected {pair.ghidra_version}")
             if not server.java_version.startswith("21."):
                 mismatches.append(f"Java {server.java_version}, expected 21.x")
             if server.endpoint_count <= 0:
@@ -368,54 +405,102 @@ class Manager:
 
     def sync(self, *, dry_run: bool = False) -> list[str]:
         lines = ["Resolving stable upstream releases..."]
-        resolved = self.resolved_pair()
-        lines.extend(self._remote_lines(resolved))
+        resolved = resolve_ghidra(self.client)
+        lines.append(f"Upstream Ghidra:    {resolved.version}")
         store = StateStore(self.paths)
         state = store.load()
+        selected_ids: list[str] = []
+        if state.current:
+            selected_ids = [plugin.plugin_id for plugin in store.pair(state.current).plugins]
+        definitions = [plugin_definition(plugin_id) for plugin_id in selected_ids]
+        sources = [
+            (definition, resolve_plugin_source(self.client, definition))
+            for definition in definitions
+        ]
+        for definition, source in sources:
+            lines.append(f"Upstream plugin:    {definition.plugin_id} {source.version}")
         if dry_run:
-            if state.current == resolved.pair_id:
+            current = store.pair(state.current) if state.current else None
+            current_sources = (
+                {plugin.plugin_id: (plugin.tag, plugin.commit) for plugin in current.plugins}
+                if current
+                else {}
+            )
+            wanted_sources = {
+                definition.plugin_id: (source.tag, source.commit) for definition, source in sources
+            }
+            if (
+                current
+                and current.ghidra_version == resolved.version
+                and current_sources == wanted_sources
+            ):
                 lines.append("Dry run: the active pair is already current.")
             else:
+                plugin_summary = ", ".join(selected_ids) or "none"
                 lines.append(
-                    f"Dry run: would activate Ghidra {resolved.ghidra_version} "
-                    f"with GhidraMCP {resolved.mcp_version}."
+                    f"Dry run: would activate Ghidra {resolved.version}; plugins {plugin_summary}."
                 )
-            return lines
-        if self._is_current(state, resolved):
-            lines.append(
-                f"Already current: Ghidra {resolved.ghidra_version} "
-                f"with GhidraMCP {resolved.mcp_version}."
-            )
             return lines
         if self.process_check(self.paths.ghidra):
             raise ManagerError("Close the managed Ghidra instance before syncing")
         self.paths.home.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="transaction-", dir=self.paths.home) as temporary:
             transaction = Path(temporary)
-            self._stage_mcp(resolved, transaction)
-            lines.extend(self._stage_ghidra(resolved, transaction))
-            self._install_extension(
-                resolved.ghidra_version,
-                resolved.mcp_version,
-                resolved.mcp_extension.name,
-                transaction,
+            lines.extend(self._ensure_ghidra(resolved, transaction))
+            installed_plugins = tuple(
+                self._ensure_plugin(definition, source, resolved.version, transaction)
+                for definition, source in sources
             )
-            pair = PairMetadata(
-                pair_id=resolved.pair_id,
-                ghidra_version=resolved.ghidra_version,
-                mcp_version=resolved.mcp_version,
-                ghidra_tag=resolved.ghidra_tag,
-                mcp_tag=resolved.mcp_tag,
-            )
+            pair = self._pair_metadata(resolved.version, resolved.tag, installed_plugins)
+            if state.current == pair.pair_id and self._pair_active(pair):
+                lines.append(
+                    f"Already current: Ghidra {resolved.version}; "
+                    f"plugins {', '.join(selected_ids) or 'none'}."
+                )
+                return lines
+            self._activate_plugins(pair, transaction)
             store.save_pair(pair)
             previous = state.current if state.current != pair.pair_id else state.previous
             store.save(ManagerState(current=pair.pair_id, previous=previous))
         self._prune(store.load())
         lines.append(
-            f"Active pair: Ghidra {resolved.ghidra_version} "
-            f"with GhidraMCP {resolved.mcp_version}."
+            f"Active pair: Ghidra {resolved.version}; plugins {', '.join(selected_ids) or 'none'}."
         )
         return lines
+
+    def plugin_install(self, plugin_id: str) -> list[str]:
+        definition = plugin_definition(plugin_id)
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        current = store.pair(state.current)
+        if self.process_check(self.paths.ghidra):
+            raise ManagerError("Close the managed Ghidra instance before installing plugins")
+        source = resolve_plugin_source(self.client, definition)
+        self.paths.home.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="plugin-transaction-", dir=self.paths.home
+        ) as value:
+            transaction = Path(value)
+            installed = self._ensure_plugin(definition, source, current.ghidra_version, transaction)
+            plugins = {plugin.plugin_id: plugin for plugin in current.plugins}
+            plugins[plugin_id] = installed
+            pair = self._pair_metadata(
+                current.ghidra_version,
+                current.ghidra_tag,
+                tuple(plugins.values()),
+            )
+            if state.current == pair.pair_id and self._pair_active(pair):
+                return [f"Plugin already current: {plugin_id} {source.version}."]
+            self._activate_plugins(pair, transaction)
+            store.save_pair(pair)
+            previous = state.current if state.current != pair.pair_id else state.previous
+            store.save(ManagerState(current=pair.pair_id, previous=previous))
+        self._prune(store.load())
+        return [
+            f"Installed plugin {plugin_id} {source.version} for Ghidra {current.ghidra_version}."
+        ]
 
     def rollback(self) -> list[str]:
         store = StateStore(self.paths)
@@ -431,28 +516,12 @@ class Manager:
         ghidra_dir = self.paths.ghidra / previous.ghidra_version
         if not self._valid_ghidra(ghidra_dir, previous.ghidra_version):
             raise ManagerError("Previous Ghidra installation is missing or invalid")
-        component = self._mcp_metadata(previous.mcp_version)
-        extension_name = component.get("extension_asset")
-        if not extension_name:
-            raise ManagerError("Previous pair metadata is incomplete")
-        archive = self.paths.mcp / previous.mcp_version / extension_name
-        if not archive.is_file():
-            raise ManagerError("Previous GhidraMCP extension archive is missing")
         with tempfile.TemporaryDirectory(prefix="rollback-", dir=self.paths.home) as temporary:
-            self._install_extension(
-                previous.ghidra_version,
-                previous.mcp_version,
-                extension_name,
-                Path(temporary),
-            )
-            store.save(
-                ManagerState(current=previous.pair_id, previous=current.pair_id)
-            )
+            self._activate_plugins(previous, Path(temporary))
+            store.save(ManagerState(current=previous.pair_id, previous=current.pair_id))
         self._prune(store.load())
-        return [
-            f"Rolled back to Ghidra {previous.ghidra_version} "
-            f"with GhidraMCP {previous.mcp_version}."
-        ]
+        plugins = ", ".join(plugin.plugin_id for plugin in previous.plugins) or "none"
+        return [f"Rolled back to Ghidra {previous.ghidra_version}; plugins {plugins}."]
 
     def projects(self, *, base_port: int = DEFAULT_PORT) -> list[str]:
         pair, preferences, unique, last_opened = self._project_registry()
@@ -473,13 +542,10 @@ class Manager:
             last_status = "last-opened" if base == last_opened else "recent"
             instance = active.get(base_path.name)
             active_status = (
-                f"active MCP port {instance.port} (PID {instance.pid})"
-                if instance
-                else "inactive"
+                f"active MCP port {instance.port} (PID {instance.pid})" if instance else "inactive"
             )
             lines.append(
-                f"{base_path.name} | {storage} | {last_status} | "
-                f"{active_status} | {project_file}"
+                f"{base_path.name} | {storage} | {last_status} | {active_status} | {project_file}"
             )
         lines.append(f"{len(unique)} recorded projects from {preferences}")
         return lines
@@ -524,6 +590,7 @@ class Manager:
         if timeout <= 0:
             raise ManagerError("Timeout must be a positive integer")
         pair = self._require_active_pair()
+        self._require_mcp(pair)
         project_path = self._resolve_project(project)
         baseline = self.instance_discovery(base_port)
         active = next((item for item in baseline if item.project == project_path.stem), None)
@@ -582,9 +649,7 @@ class Manager:
         pair = store.pair(state.current)
         java_home = find_java21()
         message = f"Launching Ghidra {pair.ghidra_version} with JDK 21..."
-        return message, run_ghidra(
-            self.paths.ghidra / pair.ghidra_version, arguments, java_home
-        )
+        return message, run_ghidra(self.paths.ghidra / pair.ghidra_version, arguments, java_home)
 
     def launch_multi(
         self,
@@ -614,6 +679,7 @@ class Manager:
         if state.current is None:
             raise ManagerError("No active pair. Run ghidra-manager sync first.")
         pair = store.pair(state.current)
+        self._require_mcp(pair)
         baseline = self.instance_discovery(base_port)
         active_names = {instance.project for instance in baseline}
         duplicate_active = next((name for name in names if name in active_names), None)
@@ -668,18 +734,14 @@ class Manager:
         )
 
     def bridge(self, arguments: list[str]) -> int:
-        store = StateStore(self.paths)
-        state = store.load()
-        if state.current is None:
-            raise ManagerError("No active pair. Run ghidra-manager sync first.")
-        pair = store.pair(state.current)
-        component = self._mcp_metadata(pair.mcp_version)
-        bridge_name = component.get("bridge_asset")
+        pair = self._require_active_pair()
+        mcp = self._require_mcp(pair)
+        bridge_name = mcp.runtime_file("bridge")
         if not bridge_name:
-            raise ManagerError("Active MCP component has no bridge asset metadata")
-        bridge_path = self.paths.mcp / pair.mcp_version / bridge_name
+            raise ManagerError("Active MCP plugin has no bridge metadata")
+        bridge_path = self.paths.home / bridge_name
         if not bridge_path.is_file():
-            raise ManagerError("Active MCP bridge is missing. Run sync to repair it.")
+            raise ManagerError("Active MCP bridge is missing. Reinstall the mcp plugin.")
         self.paths.python.mkdir(parents=True, exist_ok=True)
         self.paths.uv_cache.mkdir(parents=True, exist_ok=True)
         return run_bridge(
@@ -692,7 +754,7 @@ class Manager:
     def compare(
         self, source_project: str, target_project: str, *, base_port: int = DEFAULT_PORT
     ) -> int:
-        self._require_active_pair()
+        self._require_mcp(self._require_active_pair())
         if source_project == target_project:
             raise ManagerError("compare source and target projects must be different")
         instances = self.instance_discovery(base_port)
@@ -716,7 +778,7 @@ class Manager:
         )
 
     def compare_apply(self, plan: Path) -> int:
-        self._require_active_pair()
+        self._require_mcp(self._require_active_pair())
         return compare_engine.main(
             [
                 "apply",
@@ -733,6 +795,18 @@ class Manager:
         if state.current is None:
             raise ManagerError("No active pair. Run ghidra-manager sync first.")
         return store.pair(state.current)
+
+    def require_mcp(self) -> None:
+        self._require_mcp(self._require_active_pair())
+
+    @staticmethod
+    def _require_mcp(pair: PairMetadata) -> PluginMetadata:
+        plugin = pair.plugin("mcp")
+        if plugin is None:
+            raise ManagerError(
+                "MCP plugin is not installed. Run ghidra-manager plugins install mcp."
+            )
+        return plugin
 
     @staticmethod
     def _resolve_instance(project: str, instances: list[Instance]) -> Instance:
@@ -759,9 +833,7 @@ class Manager:
         return self._normalize_project(str(matches[0]))
 
     @staticmethod
-    def _require_running_launch(
-        process: subprocess.Popen[bytes], log_path: Path
-    ) -> None:
+    def _require_running_launch(process: subprocess.Popen[bytes], log_path: Path) -> None:
         if process.poll() is None:
             return
         detail = log_path.read_text(encoding="utf-8", errors="replace")[:4000]
@@ -788,133 +860,279 @@ class Manager:
         result = value.removeprefix("ghidra:")
         return result.removesuffix(".gpr")
 
-    def _remote_lines(self, resolved: ResolvedPair) -> list[str]:
-        lines = [
-            f"Upstream Ghidra:    {resolved.ghidra_latest_version}",
-            f"Compatible Ghidra:  {resolved.ghidra_version}",
-            f"Upstream GhidraMCP: {resolved.mcp_version}",
-        ]
-        if resolved.ghidra_latest_version != resolved.ghidra_version:
-            lines.append(
-                f"Update held: GhidraMCP {resolved.mcp_version} declares "
-                f"Ghidra {resolved.ghidra_version}."
-            )
-        return lines
-
-    def _is_current(self, state: ManagerState, resolved: ResolvedPair) -> bool:
-        mcp_dir = self.paths.mcp / resolved.mcp_version
-        return (
-            state.current == resolved.pair_id
-            and self._valid_ghidra(
-                self.paths.ghidra / resolved.ghidra_version, resolved.ghidra_version
-            )
-            and all(
-                (mcp_dir / asset.name).is_file()
-                for asset in (
-                    resolved.mcp_extension,
-                    resolved.mcp_bridge,
-                    resolved.mcp_requirements,
-                )
-            )
-            and self._installed_mcp_version(resolved.ghidra_version) == resolved.mcp_version
-        )
-
-    def _stage_mcp(self, resolved: ResolvedPair, transaction: Path) -> None:
-        destination = self.paths.mcp / resolved.mcp_version
-        assets = (
-            resolved.mcp_extension,
-            resolved.mcp_bridge,
-            resolved.mcp_requirements,
-        )
-        if all((destination / asset.name).is_file() for asset in assets):
-            return
-        stage = transaction / "mcp-component"
-        stage.mkdir()
-        for asset in assets:
-            self._download(asset, stage / asset.name)
-        atomic_json(
-            stage / "metadata.json",
-            {
-                "mcp_version": resolved.mcp_version,
-                "mcp_tag": resolved.mcp_tag,
-                "ghidra_version": resolved.ghidra_version,
-                "extension_asset": resolved.mcp_extension.name,
-                "bridge_asset": resolved.mcp_bridge.name,
-                "requirements_asset": resolved.mcp_requirements.name,
-            },
-            mode=0o600,
-        )
-        self._replace_directory(stage, destination)
-
-    def _stage_ghidra(self, resolved: ResolvedPair, transaction: Path) -> list[str]:
-        destination = self.paths.ghidra / resolved.ghidra_version
-        if self._valid_ghidra(destination, resolved.ghidra_version):
+    def _ensure_ghidra(self, resolved: ResolvedGhidra, transaction: Path) -> list[str]:
+        destination = self.paths.ghidra / resolved.version
+        if self._valid_ghidra(destination, resolved.version):
             return []
-        archive = transaction / resolved.ghidra_asset.name
-        self._download(resolved.ghidra_asset, archive)
+        archive = transaction / resolved.asset.name
+        self._download(resolved.asset, archive)
         extract_dir = transaction / "ghidra-extract"
         safe_extract(archive, extract_dir)
         roots = [path for path in extract_dir.iterdir() if path.is_dir()]
-        if len(roots) != 1 or not self._valid_ghidra(roots[0], resolved.ghidra_version):
+        if len(roots) != 1 or not self._valid_ghidra(roots[0], resolved.version):
             raise ManagerError("Extracted Ghidra installation failed validation")
         atomic_json(
             roots[0] / ".manager-metadata.json",
             {
-                "ghidra_version": resolved.ghidra_version,
-                "ghidra_tag": resolved.ghidra_tag,
-                "asset": resolved.ghidra_asset.name,
-                "digest": resolved.ghidra_asset.digest,
+                "ghidra_version": resolved.version,
+                "ghidra_tag": resolved.tag,
+                "asset": resolved.asset.name,
+                "digest": resolved.asset.digest,
             },
             mode=0o600,
         )
         self._replace_directory(roots[0], destination)
-        return [f"Downloading Ghidra {resolved.ghidra_version}..."]
+        return [f"Downloading Ghidra {resolved.version}..."]
 
-    def _install_extension(
+    def _ensure_plugin(
         self,
+        definition: PluginDefinition,
+        source: ResolvedPluginSource,
         ghidra_version: str,
-        mcp_version: str,
-        extension_name: str,
         transaction: Path,
-    ) -> None:
-        if self._installed_mcp_version(ghidra_version) == mcp_version:
-            return
-        ghidra_dir = self.paths.ghidra / ghidra_version
-        archive = self.paths.mcp / mcp_version / extension_name
-        properties = extension_properties(archive)
-        if properties.get("version") != ghidra_version:
-            raise ManagerError("Extension is incompatible with the staged Ghidra installation")
-        unpacked = transaction / "extension-unpacked"
-        safe_extract(archive, unpacked)
-        source = unpacked / "GhidraMCP"
-        if not source.is_dir():
-            raise ManagerError("Extension archive has an unexpected layout")
-        target = ghidra_dir / "Ghidra" / "Extensions" / "GhidraMCP"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        backup = transaction / "extension-backup"
-        if target.exists():
-            target.replace(backup)
+    ) -> PluginMetadata:
+        destination = self.paths.plugins / definition.plugin_id / ghidra_version / source.commit
+        cached = self._cached_plugin(destination)
+        if cached is not None:
+            return cached
+        source_archive = transaction / f"{definition.plugin_id}-source.zip"
+        self.client.download(source.archive_url, source_archive)
+        source_digest = file_digest(source_archive)
+        source_extract = transaction / f"{definition.plugin_id}-source"
+        safe_extract(source_archive, source_extract)
+        roots = [path for path in source_extract.iterdir() if path.is_dir()]
+        if len(roots) != 1:
+            raise ManagerError(
+                f"Plugin source archive has an unexpected layout: {definition.plugin_id}"
+            )
+        source_root = roots[0]
+        java_home = find_java21()
+        self.paths.gradle_cache.mkdir(parents=True, exist_ok=True)
+        run_plugin_build(
+            self.paths.ghidra / ghidra_version,
+            source_root,
+            definition.build_task,
+            java_home,
+            self.paths.gradle_cache,
+        )
+        artifacts = [
+            path for path in source_root.glob(definition.artifact_pattern) if path.is_file()
+        ]
+        if len(artifacts) != 1:
+            raise ManagerError(
+                f"Expected one built artifact for {definition.plugin_id}, found {len(artifacts)}"
+            )
+        validate_plugin_archive(
+            artifacts[0],
+            definition,
+            ghidra_version=ghidra_version,
+            plugin_version=source.version,
+        )
+        stage = transaction / f"{definition.plugin_id}-component"
+        stage.mkdir()
+        archive = stage / "extension.zip"
+        shutil.copy2(artifacts[0], archive)
+        runtime_files: list[tuple[str, str]] = []
+        for name, relative in definition.runtime_files:
+            runtime_source = source_root / relative
+            if not runtime_source.is_file():
+                raise ManagerError(
+                    f"Plugin source is missing runtime file: {definition.plugin_id} {relative}"
+                )
+            runtime_target = stage / "runtime" / Path(relative).name
+            runtime_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(runtime_source, runtime_target)
+            runtime_files.append(
+                (
+                    name,
+                    str(
+                        (destination / "runtime" / runtime_target.name).relative_to(self.paths.home)
+                    ),
+                )
+            )
+        plugin = PluginMetadata(
+            plugin_id=definition.plugin_id,
+            version=source.version,
+            tag=source.tag,
+            commit=source.commit,
+            extension_name=definition.extension_name,
+            extension_root=definition.extension_root,
+            artifact=str((destination / "extension.zip").relative_to(self.paths.home)),
+            digest=file_digest(archive),
+            runtime_files=tuple(runtime_files),
+        )
+        atomic_json(
+            stage / "metadata.json",
+            {"plugin": self._plugin_json(plugin), "source_digest": source_digest},
+            mode=0o600,
+        )
+        self._replace_directory(stage, destination)
+        return plugin
+
+    def _cached_plugin(self, destination: Path) -> PluginMetadata | None:
+        metadata_path = destination / "metadata.json"
+        if not metadata_path.is_file():
+            return None
         try:
-            source.replace(target)
+            raw: object = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or not isinstance(raw.get("plugin"), dict):
+                return None
+            plugin = StateStore._plugin_from_mapping(raw["plugin"])
+        except (OSError, ValueError, TypeError, KeyError):
+            return None
+        archive = self.paths.home / plugin.artifact
+        if not archive.is_file() or file_digest(archive) != plugin.digest:
+            return None
+        definition = plugin_definition(plugin.plugin_id)
+        validate_plugin_archive(
+            archive,
+            definition,
+            ghidra_version=destination.parent.name,
+            plugin_version=plugin.version,
+        )
+        return plugin
+
+    @staticmethod
+    def _plugin_json(plugin: PluginMetadata) -> dict[str, object]:
+        return {
+            "plugin_id": plugin.plugin_id,
+            "version": plugin.version,
+            "tag": plugin.tag,
+            "commit": plugin.commit,
+            "extension_name": plugin.extension_name,
+            "extension_root": plugin.extension_root,
+            "artifact": plugin.artifact,
+            "digest": plugin.digest,
+            "runtime_files": list(plugin.runtime_files),
+        }
+
+    @classmethod
+    def _pair_metadata(
+        cls,
+        ghidra_version: str,
+        ghidra_tag: str,
+        plugins: tuple[PluginMetadata, ...],
+    ) -> PairMetadata:
+        ordered = tuple(sorted(plugins, key=lambda plugin: plugin.plugin_id))
+        if len({plugin.plugin_id for plugin in ordered}) != len(ordered):
+            raise ManagerError("A managed pair cannot contain duplicate plugins")
+        if ordered:
+            manifest = json.dumps(
+                [
+                    {"id": plugin.plugin_id, "tag": plugin.tag, "commit": plugin.commit}
+                    for plugin in ordered
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            suffix = hashlib.sha256(manifest.encode("utf-8")).hexdigest()[:12]
+        else:
+            suffix = "none"
+        return PairMetadata(
+            pair_id=f"ghidra-{ghidra_version}__plugins-{suffix}",
+            ghidra_version=ghidra_version,
+            ghidra_tag=ghidra_tag,
+            plugins=ordered,
+        )
+
+    def _activate_plugins(self, pair: PairMetadata, transaction: Path) -> None:
+        install = self.paths.ghidra / pair.ghidra_version
+        if not self._valid_ghidra(install, pair.ghidra_version):
+            raise ManagerError("Pair Ghidra installation is missing or invalid")
+        prepared: dict[str, Path] = {}
+        activation = transaction / "plugin-activation"
+        activation.mkdir()
+        for plugin in pair.plugins:
+            definition = plugin_definition(plugin.plugin_id)
+            archive = self.paths.home / plugin.artifact
+            if not archive.is_file():
+                raise ManagerError(f"Plugin artifact is missing: {plugin.plugin_id}")
+            if plugin.digest and file_digest(archive) != plugin.digest:
+                raise ManagerError(f"Plugin artifact digest mismatch: {plugin.plugin_id}")
+            validate_plugin_archive(
+                archive,
+                definition,
+                ghidra_version=pair.ghidra_version,
+                plugin_version=plugin.version,
+            )
+            unpacked = activation / plugin.plugin_id
+            safe_extract(archive, unpacked)
+            source = unpacked / plugin.extension_root
+            if not source.is_dir():
+                raise ManagerError(f"Plugin archive has an unexpected root: {plugin.plugin_id}")
+            prepared[plugin.extension_root] = source
+        extension_dir = install / "Ghidra" / "Extensions"
+        extension_dir.mkdir(parents=True, exist_ok=True)
+        managed_roots = {definition.extension_root for definition in load_registry()}
+        managed_roots.update(plugin.extension_root for plugin in pair.plugins)
+        backup = transaction / "plugin-backup"
+        backup.mkdir()
+        try:
+            for root in sorted(managed_roots):
+                target = extension_dir / root
+                if target.exists():
+                    target.replace(backup / root)
+            for plugin in pair.plugins:
+                target = extension_dir / plugin.extension_root
+                prepared[plugin.extension_root].replace(target)
+                atomic_json(
+                    target / ".manager-plugin.json",
+                    {
+                        "plugin_id": plugin.plugin_id,
+                        "version": plugin.version,
+                        "tag": plugin.tag,
+                        "commit": plugin.commit,
+                        "digest": plugin.digest,
+                    },
+                    mode=0o600,
+                )
         except Exception:
-            shutil.rmtree(target, ignore_errors=True)
-            if backup.exists():
-                backup.replace(target)
+            for root in managed_roots:
+                target = extension_dir / root
+                if target.is_dir():
+                    shutil.rmtree(target)
+                retained = backup / root
+                if retained.exists():
+                    retained.replace(target)
             raise
 
-    def _mcp_metadata(self, mcp_version: str) -> dict[str, str]:
-        component = self.paths.mcp / mcp_version
-        json_path = component / "metadata.json"
-        if json_path.is_file():
+    def _pair_active(self, pair: PairMetadata) -> bool:
+        if not self._valid_ghidra(self.paths.ghidra / pair.ghidra_version, pair.ghidra_version):
+            return False
+        expected = {plugin.extension_root: plugin for plugin in pair.plugins}
+        extension_dir = self.paths.ghidra / pair.ghidra_version / "Ghidra" / "Extensions"
+        for definition in load_registry():
+            target = extension_dir / definition.extension_root
+            plugin = expected.get(definition.extension_root)
+            if plugin is None:
+                if target.exists():
+                    return False
+                continue
+            marker = target / ".manager-plugin.json"
             try:
-                raw: object = json.loads(json_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                raise ManagerError(f"Invalid MCP component metadata: {mcp_version}") from exc
-            if not isinstance(raw, dict):
-                raise ManagerError(f"Invalid MCP component metadata: {mcp_version}")
-            return {str(key): str(value) for key, value in raw.items()}
-        legacy = component / "metadata"
-        return read_properties(legacy)
+                raw: object = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return False
+            if not isinstance(raw, dict) or raw.get("commit") != plugin.commit:
+                return False
+        return True
+
+    def _installed_plugin_matches(self, pair: PairMetadata, plugin: PluginMetadata) -> bool:
+        if plugin.commit.startswith("legacy-") and plugin.plugin_id == "mcp":
+            return self._installed_mcp_version(pair.ghidra_version) == plugin.version
+        marker = (
+            self.paths.ghidra
+            / pair.ghidra_version
+            / "Ghidra"
+            / "Extensions"
+            / plugin.extension_root
+            / ".manager-plugin.json"
+        )
+        try:
+            raw: object = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(raw, dict) and raw.get("commit") == plugin.commit
 
     def _download(self, asset: ReleaseAsset, destination: Path) -> None:
         self.client.download(asset.url, destination)
@@ -942,7 +1160,18 @@ class Manager:
         store = StateStore(self.paths)
         pairs = [store.pair(pair_id) for pair_id in (state.current, state.previous) if pair_id]
         keep_ghidra = {pair.ghidra_version for pair in pairs}
-        keep_mcp = {pair.mcp_version for pair in pairs}
+        keep_mcp = {
+            Path(plugin.artifact).parts[1]
+            for pair in pairs
+            for plugin in pair.plugins
+            if Path(plugin.artifact).parts[:1] == ("ghidra-mcp",)
+        }
+        keep_plugins = {
+            (self.paths.home / plugin.artifact).parent.resolve()
+            for pair in pairs
+            for plugin in pair.plugins
+            if Path(plugin.artifact).parts[:1] == ("plugins",)
+        }
         keep_pairs = {pair.pair_id for pair in pairs}
         for root, keep in (
             (self.paths.ghidra, keep_ghidra),
@@ -954,6 +1183,18 @@ class Manager:
             for child in root.iterdir():
                 if child.is_dir() and child.name not in keep:
                     shutil.rmtree(child)
+        if self.paths.plugins.is_dir():
+            components = [path for path in self.paths.plugins.glob("*/*/*") if path.is_dir()]
+            for component in components:
+                if component.resolve() not in keep_plugins:
+                    shutil.rmtree(component)
+            for directory in sorted(
+                (path for path in self.paths.plugins.glob("*/*") if path.is_dir()),
+                key=lambda path: len(path.parts),
+                reverse=True,
+            ):
+                if not any(directory.iterdir()):
+                    directory.rmdir()
 
     def _installed_mcp_version(self, ghidra_version: str) -> str | None:
         properties = (

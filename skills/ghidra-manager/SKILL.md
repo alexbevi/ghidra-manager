@@ -14,10 +14,11 @@ do not hardcode release versions or platform paths.
 - Inspect installed and upstream versions with `ghidra-manager status`.
 - Inspect the curated plugin catalog with
   `ghidra-manager plugins discover [--json]`.
+- Inspect the active plugin set with `ghidra-manager plugins list [--json]`.
 - Check local RE readiness with `ghidra-manager doctor [PROJECT]` and add
   `--program PROGRAM` when one exact open program is required.
 - Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when
-  the user intends to install or update managed components.
+  the user intends to install or update Ghidra and rebuild selected plugins.
 - List recorded project paths with `ghidra-manager projects`.
 - Open and verify one recorded project with `ghidra-manager open PROJECT`.
 - List responding GhidraMCP processes with `ghidra-manager instances`.
@@ -28,6 +29,22 @@ do not hardcode release versions or platform paths.
 `projects` reports Ghidra's settings registry, not live processes. Use
 `instances` as the runtime truth surface. Prefer `doctor --json` when Codex
 needs structured readiness details without upstream release resolution.
+
+## Manage plugins
+
+1. Run `ghidra-manager sync` before installing a plugin on a fresh manager.
+2. Run `ghidra-manager plugins discover` and use only the bundled plugin IDs.
+3. Close manager-owned Ghidra processes before running
+   `ghidra-manager plugins install PLUGIN`.
+4. Install `mcp` before MCP-dependent launch, bridge, instance, doctor, or
+   compare workflows.
+5. Install `ghidra-lx-loader` before importing an LE/LX executable, then
+   relaunch Ghidra so the loader is available.
+6. Verify the selected tag and commit with `ghidra-manager plugins list`.
+
+Plugin install also updates an already-selected plugin. It builds the newest
+stable release tag against the active Ghidra and leaves the prior pair usable
+if source resolution, compilation, validation, or activation fails.
 
 ## Launch and verify projects
 
@@ -62,8 +79,9 @@ the package source instead.
 - Never modify a Ghidra installation outside manager state.
 - Close manager-owned Ghidra processes before `sync` or `rollback`.
 - Preserve stable-release selection, GitHub SHA-256 verification, exact
-  extension compatibility, staged installation, atomic state updates, and a
-  usable current/previous pair when changing manager code.
+  extension compatibility, immutable plugin source commits, staged builds,
+  atomic full-set activation, and a usable current/previous pair when changing
+  manager code.
 
 ## Modify the repository
 

@@ -2,20 +2,21 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from test_manager_sync import SyncClient
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore
+from tests.plugin_fixtures import managed_pair
+from tests.test_manager_sync import SyncClient
 
 
 def _manager(monkeypatch, tmp_path: Path, discovery) -> tuple[Manager, Path]:  # type: ignore[no-untyped-def]
     paths = ManagerPaths(tmp_path / "managed")
     store = StateStore(paths)
-    pair = PairMetadata("pair", "12.1.2", "5.14.2", "ghidra-tag", "mcp-tag")
+    pair = managed_pair()
     store.save_pair(pair)
     store.save(ManagerState(current="pair"))
     application = paths.ghidra / "12.1.2/Ghidra/application.properties"
@@ -35,9 +36,7 @@ def _manager(monkeypatch, tmp_path: Path, discovery) -> tuple[Manager, Path]:  #
     return Manager(paths, SyncClient(), instance_discovery=discovery), project
 
 
-def test_open_resolves_recorded_name_and_waits_for_program(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_open_resolves_recorded_name_and_waits_for_program(monkeypatch, tmp_path: Path) -> None:
     ready = Instance(8089, 20, "demo", ("DEMO.EXE",))
     scans = iter([[], [ready]])
     manager, project = _manager(monkeypatch, tmp_path, lambda _: next(scans))

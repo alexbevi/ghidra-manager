@@ -1,18 +1,18 @@
 from pathlib import Path
 
-from test_manager_sync import SyncClient
-
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore
+from tests.plugin_fixtures import managed_pair
+from tests.test_manager_sync import SyncClient
 
 
 def _manager(tmp_path: Path) -> Manager:
     paths = ManagerPaths(tmp_path / "managed")
     store = StateStore(paths)
-    store.save_pair(PairMetadata("pair", "12.1.2", "5.14.2", "ghidra", "mcp"))
+    store.save_pair(managed_pair(ghidra_tag="ghidra"))
     store.save(ManagerState(current="pair"))
     return Manager(
         paths,

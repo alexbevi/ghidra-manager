@@ -198,3 +198,53 @@ def run_bridge(
         return subprocess.run(command, check=False, env=environment).returncode
     except OSError as exc:
         raise ManagerError(f"Failed to run GhidraMCP bridge: {exc}") from exc
+
+
+def run_plugin_build(
+    install: Path,
+    source: Path,
+    task: str,
+    java_home: Path,
+    gradle_cache: Path,
+    *,
+    platform: str | None = None,
+) -> str:
+    """Build one curated extension with the target Ghidra Gradle wrapper."""
+    platform = platform or sys.platform
+    wrapper_dir = install / "support" / "gradle"
+    wrapper = wrapper_dir / ("gradlew.bat" if platform == "win32" else "gradlew")
+    if not wrapper.is_file():
+        raise ManagerError("Managed Ghidra Gradle wrapper is missing")
+    environment = os.environ.copy()
+    environment["JAVA_HOME"] = str(java_home)
+    environment["PATH"] = str(java_home / "bin") + os.pathsep + environment.get("PATH", "")
+    environment["GRADLE_USER_HOME"] = str(gradle_cache)
+    arguments = [
+        "--console",
+        "plain",
+        "--no-daemon",
+        "-p",
+        str(source),
+        f"-PGHIDRA_INSTALL_DIR={install}",
+        task,
+    ]
+    if platform == "win32":
+        command_line = subprocess.list2cmdline([str(wrapper), *arguments])
+        command = [environment.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", command_line]
+    else:
+        command = [str(wrapper), *arguments]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+    except OSError as exc:
+        raise ManagerError(f"Failed to start plugin build: {exc}") from exc
+    output = result.stdout + result.stderr
+    if result.returncode != 0:
+        detail = "\n".join(output.splitlines()[-40:])
+        raise ManagerError(f"Plugin build failed with exit code {result.returncode}:\n{detail}")
+    return output

@@ -8,8 +8,9 @@ import pytest
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore, safe_extract
+from tests.plugin_fixtures import managed_pair
 
 
 def _legacy_pair(paths: ManagerPaths, name: str) -> Path:
@@ -35,22 +36,19 @@ def test_legacy_links_migrate_to_json_without_removal(tmp_path: Path) -> None:
 
     assert state == ManagerState(current=current.name)
     assert (paths.home / "current").is_symlink()
+    migrated = StateStore(paths).pair(current.name)
+    assert migrated.plugin("mcp") is not None
+    assert migrated.plugin("mcp").version == "5.14.2"  # type: ignore[union-attr]
     assert json.loads(paths.state.read_text(encoding="utf-8")) == {
         "current": current.name,
         "previous": None,
-        "schema_version": 1,
+        "schema_version": 2,
     }
 
 
 def test_json_pair_round_trip(tmp_path: Path) -> None:
     store = StateStore(ManagerPaths(tmp_path))
-    pair = PairMetadata(
-        pair_id="pair",
-        ghidra_version="12.1.2",
-        mcp_version="5.14.2",
-        ghidra_tag="Ghidra_12.1.2_build",
-        mcp_tag="v5.14.2",
-    )
+    pair = managed_pair(ghidra_tag="Ghidra_12.1.2_build")
 
     store.save_pair(pair)
     store.save(ManagerState(current=pair.pair_id))
@@ -62,7 +60,7 @@ def test_json_pair_round_trip(tmp_path: Path) -> None:
 def test_unknown_state_schema_is_rejected(tmp_path: Path) -> None:
     paths = ManagerPaths(tmp_path)
     paths.state.write_text(
-        '{"schema_version": 2, "current": null, "previous": null}', encoding="utf-8"
+        '{"schema_version": 3, "current": null, "previous": null}', encoding="utf-8"
     )
 
     with pytest.raises(ManagerError, match="Unsupported manager state schema"):

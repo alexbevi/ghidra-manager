@@ -2,20 +2,21 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from test_manager_sync import SyncClient
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore
+from tests.plugin_fixtures import managed_pair
+from tests.test_manager_sync import SyncClient
 
 
 def _manager(tmp_path: Path, discovery) -> Manager:  # type: ignore[no-untyped-def]
     paths = ManagerPaths(tmp_path / "managed")
     store = StateStore(paths)
-    pair = PairMetadata("pair", "12.1.2", "5.14.2", "ghidra-tag", "mcp-tag")
+    pair = managed_pair()
     store.save_pair(pair)
     store.save(ManagerState(current="pair"))
     return Manager(paths, SyncClient(), instance_discovery=discovery)

@@ -7,6 +7,11 @@ from ghidra_manager.models import DoctorCheck
 
 
 def test_instances_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def require_mcp(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
     monkeypatch.setattr(
         cli,
         "discover_instances",
@@ -36,12 +41,15 @@ def test_help_command(capsys) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_instances_empty_state(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def require_mcp(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
     monkeypatch.setattr(cli, "discover_instances", lambda port: [])
 
     assert cli.run(["instances"]) == 1
-    assert capsys.readouterr().out == (
-        "No GhidraMCP instances found on ports 8089-8104.\n"
-    )
+    assert capsys.readouterr().out == ("No GhidraMCP instances found on ports 8089-8104.\n")
 
 
 def test_status_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -67,9 +75,9 @@ def test_doctor_json_output(monkeypatch, capsys) -> None:  # type: ignore[no-unt
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
-    assert cli.run(
-        ["doctor", "demo", "--program", "DEMO.EXE", "--base-port", "9000", "--json"]
-    ) == 0
+    assert (
+        cli.run(["doctor", "demo", "--program", "DEMO.EXE", "--base-port", "9000", "--json"]) == 0
+    )
     output = capsys.readouterr().out
     assert '"ready": true' in output
     assert '"name": "analysis"' in output
@@ -140,9 +148,7 @@ def test_plugins_discover_output(monkeypatch, capsys) -> None:  # type: ignore[n
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
     assert cli.run(["plugins", "discover"]) == 0
-    assert capsys.readouterr().out == (
-        "mcp | GhidraMCP | selected | bethington/ghidra-mcp\n"
-    )
+    assert capsys.readouterr().out == ("mcp | GhidraMCP | selected | bethington/ghidra-mcp\n")
 
 
 def test_plugins_discover_json(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -153,9 +159,33 @@ def test_plugins_discover_json(monkeypatch, capsys) -> None:  # type: ignore[no-
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
     assert cli.run(["plugins", "discover", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "plugins": [{"id": "mcp", "selected": False}]
-    }
+    assert json.loads(capsys.readouterr().out) == {"plugins": [{"id": "mcp", "selected": False}]}
+
+
+def test_plugins_list_json(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def plugin_list(self) -> dict[str, object]:
+            return {
+                "ghidra_version": "12.1.2",
+                "plugins": [{"id": "mcp", "version": "5.14.2"}],
+            }
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["plugins", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["plugins"][0]["id"] == "mcp"
+
+
+def test_plugins_install_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def plugin_install(self, plugin: str) -> list[str]:
+            assert plugin == "ghidra-lx-loader"
+            return ["Installed plugin ghidra-lx-loader 12.0.1 for Ghidra 12.1.2."]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["plugins", "install", "ghidra-lx-loader"]) == 0
+    assert "Installed plugin ghidra-lx-loader" in capsys.readouterr().out
 
 
 def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -185,18 +215,21 @@ def test_open_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-d
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
-    assert cli.run(
-        [
-            "open",
-            "demo",
-            "--program",
-            "DEMO.EXE",
-            "--timeout",
-            "30",
-            "--base-port",
-            "9000",
-        ]
-    ) == 0
+    assert (
+        cli.run(
+            [
+                "open",
+                "demo",
+                "--program",
+                "DEMO.EXE",
+                "--timeout",
+                "30",
+                "--base-port",
+                "9000",
+            ]
+        )
+        == 0
+    )
     assert capsys.readouterr().out == "GhidraMCP instance ready:\n"
 
 
@@ -215,9 +248,7 @@ def test_launch_multi_options(monkeypatch, capsys) -> None:  # type: ignore[no-u
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
-    assert cli.run(
-        ["launch-multi", "--count", "2", "--timeout", "30", "--base-port", "9000"]
-    ) == 0
+    assert cli.run(["launch-multi", "--count", "2", "--timeout", "30", "--base-port", "9000"]) == 0
     assert capsys.readouterr().out == "GhidraMCP instances ready:\n"
 
 

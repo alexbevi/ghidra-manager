@@ -52,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
         "discover", help="List plugins in the bundled registry"
     )
     plugin_discover.add_argument("--json", action="store_true")
+    plugin_list = plugin_commands.add_parser("list", help="List active managed plugins")
+    plugin_list.add_argument("--json", action="store_true")
+    plugin_install = plugin_commands.add_parser(
+        "install", help="Build and install a plugin for the active Ghidra"
+    )
+    plugin_install.add_argument("plugin")
     open_project = commands.add_parser(
         "open", help="Open a recorded Ghidra project and wait for its MCP endpoint"
     )
@@ -111,9 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _instances(base_port: int) -> int:
     instances = discover_instances(base_port)
     if not instances:
-        print(
-            f"No GhidraMCP instances found on ports {base_port}-{base_port + PORT_RANGE - 1}."
-        )
+        print(f"No GhidraMCP instances found on ports {base_port}-{base_port + PORT_RANGE - 1}.")
         return 1
     for instance in instances:
         print(
@@ -168,8 +172,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         else:
             for check in checks:
                 print(f"{check.level.upper():7} {check.name}: {check.detail}")
-            result = "ready" if ready else "not ready"
-            print(f"Doctor result: {result}")
+            doctor_result = "ready" if ready else "not ready"
+            print(f"Doctor result: {doctor_result}")
         return 0 if ready else 1
     if args.command == "rollback":
         for line in Manager.discover().rollback():
@@ -182,16 +186,36 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "plugins":
         if args.plugin_command == "discover":
-            plugins = Manager.discover().plugin_discovery()
+            catalog_entries = Manager.discover().plugin_discovery()
             if args.json:
-                print(json.dumps({"plugins": plugins}, indent=2))
+                print(json.dumps({"plugins": catalog_entries}, indent=2))
             else:
-                for plugin in plugins:
-                    state = "selected" if plugin["selected"] else "available"
+                for entry in catalog_entries:
+                    selection_state = "selected" if entry["selected"] else "available"
                     print(
-                        f"{plugin['id']} | {plugin['name']} | {state} | "
-                        f"{plugin['repository']}"
+                        f"{entry['id']} | {entry['name']} | {selection_state} | "
+                        f"{entry['repository']}"
                     )
+            return 0
+        if args.plugin_command == "list":
+            list_result = Manager.discover().plugin_list()
+            if args.json:
+                print(json.dumps(list_result, indent=2))
+            elif list_result["ghidra_version"] is None:
+                print("No active Ghidra installation.")
+            else:
+                print(f"Plugins for Ghidra {list_result['ghidra_version']}:")
+                active_plugins = list_result["plugins"]
+                assert isinstance(active_plugins, list)
+                if not active_plugins:
+                    print("none")
+                for item in active_plugins:
+                    assert isinstance(item, dict)
+                    print(f"{item['id']} | {item['version']} | {item['tag']} | {item['commit']}")
+            return 0
+        if args.plugin_command == "install":
+            for line in Manager.discover().plugin_install(args.plugin):
+                print(line)
             return 0
         raise AssertionError(f"Unhandled plugin command: {args.plugin_command}")
     if args.command == "open":
@@ -226,11 +250,10 @@ def run(argv: Sequence[str] | None = None) -> int:
             return manager.compare_apply(Path(args.apply))
         if len(args.projects) != 2:
             build_parser().error("compare requires SOURCE_PROJECT and TARGET_PROJECT")
-        base_port = args.base_port or int(
-            os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)
-        )
+        base_port = args.base_port or int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT))
         return manager.compare(args.projects[0], args.projects[1], base_port=base_port)
     if args.command == "instances":
+        Manager.discover().require_mcp()
         return _instances(args.base_port)
     raise AssertionError(f"Unhandled command: {args.command}")
 

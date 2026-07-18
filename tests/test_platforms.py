@@ -1,5 +1,6 @@
 import os
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from ghidra_manager.platforms import (
     ghidra_settings_dir,
     run_bridge,
     run_ghidra,
+    run_plugin_build,
     start_ghidra_instance,
 )
 
@@ -21,13 +23,16 @@ def test_ghidra_settings_paths() -> None:
     assert ghidra_settings_dir(
         "12.1.2", "PUBLIC", platform="linux", environ={}, home=Path("/home/tester")
     ) == Path("/home/tester/.config/ghidra/ghidra_12.1.2_PUBLIC")
-    assert ghidra_settings_dir(
-        "12.1.2",
-        "PUBLIC",
-        platform="win32",
-        environ={"APPDATA": r"C:\Users\tester\AppData\Roaming"},
-        home=Path("/unused"),
-    ) == Path(r"C:\Users\tester\AppData\Roaming") / "ghidra/ghidra_12.1.2_PUBLIC"
+    assert (
+        ghidra_settings_dir(
+            "12.1.2",
+            "PUBLIC",
+            platform="win32",
+            environ={"APPDATA": r"C:\Users\tester\AppData\Roaming"},
+            home=Path("/unused"),
+        )
+        == Path(r"C:\Users\tester\AppData\Roaming") / "ghidra/ghidra_12.1.2_PUBLIC"
+    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX Java fixture")
@@ -79,9 +84,7 @@ def test_detached_unix_launcher_uses_foreground_mode(tmp_path: Path) -> None:
 
     process = start_ghidra_instance(install, project, tmp_path, log, platform="linux")
     assert process.wait(timeout=5) == 0
-    assert output.read_text(encoding="utf-8") == (
-        f"fg jdk Ghidra     ghidra.GhidraRun {project}"
-    )
+    assert output.read_text(encoding="utf-8") == (f"fg jdk Ghidra     ghidra.GhidraRun {project}")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv fixture")
@@ -90,21 +93,62 @@ def test_bridge_receives_managed_uv_environment(monkeypatch, tmp_path: Path) -> 
     output = tmp_path / "bridge-env"
     uv.write_text(
         "#!/bin/sh\n"
-        f"printf '%s\\n%s\\n%s' \"$*\" \"$UV_PYTHON_INSTALL_DIR\" \"$UV_CACHE_DIR\" > '{output}'\n",
+        f'printf \'%s\\n%s\\n%s\' "$*" "$UV_PYTHON_INSTALL_DIR" "$UV_CACHE_DIR" > \'{output}\'\n',
         encoding="utf-8",
     )
     uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setattr("ghidra_manager.platforms.shutil.which", lambda _: str(uv))
 
-    assert run_bridge(
-        tmp_path / "bridge.py",
-        ["--help"],
-        tmp_path / "python",
-        tmp_path / "cache",
-    ) == 0
+    assert (
+        run_bridge(
+            tmp_path / "bridge.py",
+            ["--help"],
+            tmp_path / "python",
+            tmp_path / "cache",
+        )
+        == 0
+    )
     lines = output.read_text(encoding="utf-8").splitlines()
     assert lines == [
         f"run --python 3.13 --managed-python --no-project --script {tmp_path / 'bridge.py'} --help",
         str(tmp_path / "python"),
         str(tmp_path / "cache"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("platform", "wrapper_name"), [("linux", "gradlew"), ("win32", "gradlew.bat")]
+)
+def test_plugin_build_uses_managed_wrapper_and_environment(
+    monkeypatch, tmp_path: Path, platform: str, wrapper_name: str
+) -> None:  # type: ignore[no-untyped-def]
+    install = tmp_path / "ghidra"
+    wrapper = install / "support/gradle" / wrapper_name
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
+        captured["command"] = command
+        captured["environment"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, "BUILD SUCCESSFUL\n", "")
+
+    monkeypatch.setattr("ghidra_manager.platforms.subprocess.run", fake_run)
+
+    output = run_plugin_build(
+        install,
+        tmp_path / "source",
+        "buildExtension",
+        tmp_path / "jdk",
+        tmp_path / "gradle-cache",
+        platform=platform,
+    )
+
+    assert output == "BUILD SUCCESSFUL\n"
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "buildExtension" in (command[-1] if platform == "win32" else command)
+    environment = captured["environment"]
+    assert isinstance(environment, dict)
+    assert environment["JAVA_HOME"] == str(tmp_path / "jdk")
+    assert environment["GRADLE_USER_HOME"] == str(tmp_path / "gradle-cache")

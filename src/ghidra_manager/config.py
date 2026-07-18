@@ -120,6 +120,10 @@ class ManagerPaths:
         return self.home / "ghidra-mcp"
 
     @property
+    def plugins(self) -> Path:
+        return self.home / "plugins"
+
+    @property
     def pairs(self) -> Path:
         return self.home / "pairs"
 
@@ -134,3 +138,7 @@ class ManagerPaths:
     @property
     def uv_cache(self) -> Path:
         return self.home / "uv-cache"
+
+    @property
+    def gradle_cache(self) -> Path:
+        return self.home / "gradle-cache"

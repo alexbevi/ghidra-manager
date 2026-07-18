@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.models import ReleaseAsset, ResolvedPair
+from ghidra_manager.models import ReleaseAsset, ResolvedGhidra, ResolvedPair
 from ghidra_manager.storage import parse_properties
 
 GHIDRA_REPOSITORY = "NationalSecurityAgency/ghidra"
@@ -59,6 +59,23 @@ def verify_digest(path: Path, digest: str) -> None:
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     if actual != expected:
         raise ManagerError(f"SHA-256 mismatch for {path.name}")
+
+
+def file_digest(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def resolve_ghidra(client: ReleaseClient) -> ResolvedGhidra:
+    release = _release(
+        client.get_json(f"repos/{GHIDRA_REPOSITORY}/releases/latest"), "latest Ghidra"
+    )
+    name = str(release.get("name", ""))
+    tag = str(release.get("tag_name", ""))
+    if not name.startswith("Ghidra ") or not tag:
+        raise ManagerError("Latest Ghidra release has unexpected metadata")
+    version = name.removeprefix("Ghidra ")
+    asset = _asset(release, rf"^ghidra_{re.escape(version)}_PUBLIC_[0-9]+\.zip$")
+    return ResolvedGhidra(version=version, tag=tag, asset=asset)
 
 
 def extension_properties(archive: Path) -> dict[str, str]:

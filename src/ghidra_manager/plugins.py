@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import re
+import zipfile
 from dataclasses import asdict, dataclass
 from importlib.resources import files
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.models import ResolvedPluginSource
+from ghidra_manager.releases import ReleaseClient
+from ghidra_manager.storage import parse_properties
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,15 +79,16 @@ def parse_registry(raw: object) -> tuple[PluginDefinition, ...]:
             sorted(
                 (
                     key if isinstance(key, str) and key else "",
-                    _relative_path(
-                        _string({"value": value}, "value"), f"runtime_files.{key}"
-                    ),
+                    _relative_path(_string({"value": value}, "value"), f"runtime_files.{key}"),
                 )
                 for key, value in runtime_raw.items()
             )
         )
         if any(not key for key, _ in runtime_files):
             raise ManagerError(f"Invalid runtime file name for plugin: {plugin_id}")
+        build_task = _string(entry, "build_task")
+        if not re.fullmatch(r"[A-Za-z0-9:_-]+", build_task):
+            raise ManagerError(f"Invalid plugin build task: {build_task}")
         plugins.append(
             PluginDefinition(
                 plugin_id=plugin_id,
@@ -91,10 +96,8 @@ def parse_registry(raw: object) -> tuple[PluginDefinition, ...]:
                 description=_string(entry, "description"),
                 repository=repository,
                 extension_name=_string(entry, "extension_name"),
-                extension_root=_relative_path(
-                    _string(entry, "extension_root"), "extension_root"
-                ),
-                build_task=_string(entry, "build_task"),
+                extension_root=_relative_path(_string(entry, "extension_root"), "extension_root"),
+                build_task=build_task,
                 artifact_pattern=_relative_path(
                     _string(entry, "artifact_pattern"), "artifact_pattern"
                 ),
@@ -120,3 +123,72 @@ def plugin_definition(plugin_id: str) -> PluginDefinition:
             return plugin
     available = ", ".join(plugin.plugin_id for plugin in load_registry())
     raise ManagerError(f"Unknown plugin '{plugin_id}'. Available plugins: {available}")
+
+
+def resolve_plugin_source(
+    client: ReleaseClient, definition: PluginDefinition
+) -> ResolvedPluginSource:
+    release = client.get_json(f"repos/{definition.repository}/releases/latest")
+    if not isinstance(release, dict):
+        raise ManagerError(f"GitHub returned invalid release metadata for {definition.plugin_id}")
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not tag:
+        raise ManagerError(f"Latest {definition.plugin_id} release has no tag")
+    reference = client.get_json(f"repos/{definition.repository}/git/ref/tags/{tag}")
+    if not isinstance(reference, dict) or not isinstance(reference.get("object"), dict):
+        raise ManagerError(f"Unable to resolve release tag for {definition.plugin_id}: {tag}")
+    target = reference["object"]
+    for _ in range(5):
+        target_type = target.get("type")
+        sha = target.get("sha")
+        if not isinstance(sha, str):
+            break
+        if target_type == "commit":
+            if not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+                break
+            return ResolvedPluginSource(
+                plugin_id=definition.plugin_id,
+                version=tag.removeprefix("v"),
+                tag=tag,
+                commit=sha.lower(),
+                archive_url=(f"https://api.github.com/repos/{definition.repository}/zipball/{sha}"),
+            )
+        if target_type != "tag":
+            break
+        annotated = client.get_json(f"repos/{definition.repository}/git/tags/{sha}")
+        if not isinstance(annotated, dict) or not isinstance(annotated.get("object"), dict):
+            break
+        target = annotated["object"]
+    raise ManagerError(f"Release tag does not resolve to one commit: {definition.plugin_id} {tag}")
+
+
+def plugin_extension_properties(archive: Path, definition: PluginDefinition) -> dict[str, str]:
+    member = f"{definition.extension_root}/extension.properties"
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            text = bundle.read(member).decode("utf-8")
+    except (OSError, KeyError, UnicodeError, zipfile.BadZipFile) as exc:
+        raise ManagerError(
+            f"Invalid {definition.plugin_id} extension archive: expected {member}"
+        ) from exc
+    return parse_properties(text)
+
+
+def validate_plugin_archive(
+    archive: Path,
+    definition: PluginDefinition,
+    *,
+    ghidra_version: str,
+    plugin_version: str,
+) -> None:
+    properties = plugin_extension_properties(archive, definition)
+    if properties.get("name") != definition.extension_name:
+        raise ManagerError(f"Unexpected extension name for plugin: {definition.plugin_id}")
+    if properties.get("version") != ghidra_version:
+        raise ManagerError(
+            f"Plugin {definition.plugin_id} does not declare Ghidra {ghidra_version}"
+        )
+    if definition.plugin_id == "mcp":
+        match = re.search(r"Plugin version ([0-9.]+)\.", properties.get("description", ""))
+        if match is None or match.group(1) != plugin_version:
+            raise ManagerError("MCP source tag and extension metadata do not match")

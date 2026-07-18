@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.releases import resolve_pair, verify_digest
+from ghidra_manager.releases import resolve_ghidra, resolve_pair, verify_digest
 
 
 def _extension() -> bytes:
@@ -14,9 +14,7 @@ def _extension() -> bytes:
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr(
             "GhidraMCP/extension.properties",
-            "name=GhidraMCP\n"
-            "description=Ghidra MCP Plugin version 5.14.2.\n"
-            "version=12.1.2\n",
+            "name=GhidraMCP\ndescription=Ghidra MCP Plugin version 5.14.2.\nversion=12.1.2\n",
         )
     return output.getvalue()
 
@@ -61,6 +59,20 @@ def test_resolve_compatible_pair() -> None:
     assert pair.pair_id == "ghidra-12.1.2__mcp-5.14.2"
     assert pair.ghidra_version == "12.1.2"
     assert pair.ghidra_latest_version == "12.2"
+
+
+def test_resolve_latest_ghidra_directly() -> None:
+    client = FakeClient()
+    client.responses["repos/NationalSecurityAgency/ghidra/releases/latest"] = {
+        "name": "Ghidra 12.1.2",
+        "tag_name": "Ghidra_12.1.2_build",
+        "assets": [_asset("ghidra_12.1.2_PUBLIC_20260623.zip", b"asset")],
+    }
+
+    resolved = resolve_ghidra(client)
+
+    assert resolved.version == "12.1.2"
+    assert resolved.tag == "Ghidra_12.1.2_build"
 
 
 def test_digest_mismatch(tmp_path: Path) -> None:

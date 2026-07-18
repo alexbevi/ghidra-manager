@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -13,7 +14,7 @@ from typing import Any
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.models import ManagerState, PairMetadata
+from ghidra_manager.models import ManagerState, PairMetadata, PluginMetadata
 
 
 def parse_properties(text: str) -> dict[str, str]:
@@ -113,17 +114,30 @@ class StateStore:
     def save_pair(self, pair: PairMetadata) -> None:
         pair_dir = self.paths.pairs / pair.pair_id
         pair_dir.mkdir(parents=True, exist_ok=True)
-        atomic_json(pair_dir / "metadata.json", asdict(pair), mode=0o600)
+        atomic_json(
+            pair_dir / "metadata.json",
+            {
+                "schema_version": 2,
+                "pair_id": pair.pair_id,
+                "ghidra_version": pair.ghidra_version,
+                "ghidra_tag": pair.ghidra_tag,
+                "plugins": [asdict(plugin) for plugin in pair.plugins],
+            },
+            mode=0o600,
+        )
         if self.legacy_mode:
+            mcp = pair.plugin("mcp")
             (pair_dir / "metadata").write_text(
                 f"ghidra_version={pair.ghidra_version}\n"
-                f"mcp_version={pair.mcp_version}\n"
                 f"ghidra_tag={pair.ghidra_tag}\n"
-                f"mcp_tag={pair.mcp_tag}\n",
+                f"mcp_version={mcp.version if mcp else ''}\n"
+                f"mcp_tag={mcp.tag if mcp else ''}\n",
                 encoding="utf-8",
             )
             self._replace_symlink(pair_dir / "ghidra", self.paths.ghidra / pair.ghidra_version)
-            self._replace_symlink(pair_dir / "ghidra-mcp", self.paths.mcp / pair.mcp_version)
+            if mcp:
+                component = (self.paths.home / mcp.artifact).parent
+                self._replace_symlink(pair_dir / "ghidra-mcp", component)
 
     @property
     def legacy_mode(self) -> bool:
@@ -139,7 +153,7 @@ class StateStore:
             )
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise ManagerError(f"Invalid manager state: {self.paths.state}") from exc
-        if state.schema_version != 1:
+        if state.schema_version not in {1, 2}:
             raise ManagerError(f"Unsupported manager state schema: {state.schema_version}")
         for pair_id in (state.current, state.previous):
             if pair_id is not None:
@@ -178,15 +192,80 @@ class StateStore:
         staged.symlink_to(target, target_is_directory=True)
         os.replace(staged, path)
 
-    @staticmethod
-    def _pair_from_mapping(pair_id: str, raw: dict[str, Any]) -> PairMetadata:
+    def _pair_from_mapping(self, pair_id: str, raw: dict[str, Any]) -> PairMetadata:
         try:
+            plugins_raw = raw.get("plugins")
+            if isinstance(plugins_raw, list):
+                plugins = tuple(
+                    sorted(
+                        (self._plugin_from_mapping(item) for item in plugins_raw),
+                        key=lambda plugin: plugin.plugin_id,
+                    )
+                )
+            else:
+                plugins = (self._legacy_mcp(raw),)
             return PairMetadata(
                 pair_id=pair_id,
                 ghidra_version=str(raw["ghidra_version"]),
-                mcp_version=str(raw["mcp_version"]),
                 ghidra_tag=str(raw["ghidra_tag"]),
-                mcp_tag=str(raw["mcp_tag"]),
+                plugins=plugins,
             )
-        except KeyError as exc:
+        except (KeyError, TypeError, ValueError) as exc:
             raise ManagerError(f"Pair metadata is incomplete: {pair_id}") from exc
+
+    @staticmethod
+    def _plugin_from_mapping(raw: object) -> PluginMetadata:
+        if not isinstance(raw, dict):
+            raise TypeError("plugin metadata is not an object")
+        runtime_raw = raw.get("runtime_files", [])
+        if not isinstance(runtime_raw, list):
+            raise TypeError("runtime files are invalid")
+        return PluginMetadata(
+            plugin_id=str(raw["plugin_id"]),
+            version=str(raw["version"]),
+            tag=str(raw["tag"]),
+            commit=str(raw["commit"]),
+            extension_name=str(raw["extension_name"]),
+            extension_root=str(raw["extension_root"]),
+            artifact=str(raw["artifact"]),
+            digest=str(raw["digest"]),
+            runtime_files=tuple((str(key), str(path)) for key, path in runtime_raw),
+        )
+
+    def _legacy_mcp(self, raw: dict[str, Any]) -> PluginMetadata:
+        version = str(raw["mcp_version"])
+        tag = str(raw["mcp_tag"])
+        component = self.paths.mcp / version
+        metadata_path = component / "metadata.json"
+        if metadata_path.is_file():
+            metadata_raw: object = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if not isinstance(metadata_raw, dict):
+                raise TypeError("legacy MCP metadata is invalid")
+            metadata = {str(key): str(value) for key, value in metadata_raw.items()}
+        elif (component / "metadata").is_file():
+            metadata = read_properties(component / "metadata")
+        else:
+            metadata = {"extension_asset": f"GhidraMCP-{version}.zip"}
+        extension = metadata["extension_asset"]
+        artifact_path = component / extension
+        digest = (
+            f"sha256:{hashlib.sha256(artifact_path.read_bytes()).hexdigest()}"
+            if artifact_path.is_file()
+            else ""
+        )
+        runtime_files = tuple(
+            (name, str((component / metadata[key]).relative_to(self.paths.home)))
+            for name, key in (("bridge", "bridge_asset"), ("requirements", "requirements_asset"))
+            if metadata.get(key)
+        )
+        return PluginMetadata(
+            plugin_id="mcp",
+            version=version,
+            tag=tag,
+            commit=f"legacy-{tag}",
+            extension_name="GhidraMCP",
+            extension_root="GhidraMCP",
+            artifact=str(artifact_path.relative_to(self.paths.home)),
+            digest=digest,
+            runtime_files=runtime_files,
+        )
