@@ -930,7 +930,11 @@ class Manager:
             raise ManagerError(
                 f"Plugin source archive has an unexpected layout: {definition.plugin_id}"
             )
-        source_root = roots[0]
+        build_root = transaction / f"{definition.plugin_id}-build-root"
+        build_root.mkdir()
+        source_root = build_root / definition.extension_root
+        source_root.parent.mkdir(parents=True, exist_ok=True)
+        roots[0].replace(source_root)
         java_home = find_java21()
         self.paths.gradle_cache.mkdir(parents=True, exist_ok=True)
         run_plugin_build(

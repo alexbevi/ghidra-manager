@@ -87,6 +87,7 @@ def _fake_build(
     _java_home: Path,
     _cache: Path,
 ) -> str:
+    assert source.name == "GhidraMCP"
     output = source / "build/distributions/GhidraMCP-5.14.2.zip"
     output.parent.mkdir(parents=True)
     output.write_bytes(
