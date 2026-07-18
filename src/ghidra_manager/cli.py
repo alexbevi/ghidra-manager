@@ -46,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
+    plugins = commands.add_parser("plugins", help="Discover and manage Ghidra plugins")
+    plugin_commands = plugins.add_subparsers(dest="plugin_command", required=True)
+    plugin_discover = plugin_commands.add_parser(
+        "discover", help="List plugins in the bundled registry"
+    )
+    plugin_discover.add_argument("--json", action="store_true")
     open_project = commands.add_parser(
         "open", help="Open a recorded Ghidra project and wait for its MCP endpoint"
     )
@@ -174,6 +180,20 @@ def run(argv: Sequence[str] | None = None) -> int:
         for line in Manager.discover().projects(base_port=base_port):
             print(line)
         return 0
+    if args.command == "plugins":
+        if args.plugin_command == "discover":
+            plugins = Manager.discover().plugin_discovery()
+            if args.json:
+                print(json.dumps({"plugins": plugins}, indent=2))
+            else:
+                for plugin in plugins:
+                    state = "selected" if plugin["selected"] else "available"
+                    print(
+                        f"{plugin['id']} | {plugin['name']} | {state} | "
+                        f"{plugin['repository']}"
+                    )
+            return 0
+        raise AssertionError(f"Unhandled plugin command: {args.plugin_command}")
     if args.command == "open":
         for line in Manager.discover().open_project(
             args.project,

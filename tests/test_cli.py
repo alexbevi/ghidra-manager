@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from ghidra_manager import cli
@@ -122,6 +123,39 @@ def test_projects_output(monkeypatch, capsys) -> None:  # type: ignore[no-untype
 
     assert cli.run(["projects"]) == 0
     assert capsys.readouterr().out == "Projects known to Ghidra 12.1.2:\ndemo\n"
+
+
+def test_plugins_discover_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def plugin_discovery(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": "mcp",
+                    "name": "GhidraMCP",
+                    "selected": True,
+                    "repository": "bethington/ghidra-mcp",
+                }
+            ]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["plugins", "discover"]) == 0
+    assert capsys.readouterr().out == (
+        "mcp | GhidraMCP | selected | bethington/ghidra-mcp\n"
+    )
+
+
+def test_plugins_discover_json(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def plugin_discovery(self) -> list[dict[str, object]]:
+            return [{"id": "mcp", "selected": False}]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["plugins", "discover", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "plugins": [{"id": "mcp", "selected": False}]
+    }
 
 
 def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]

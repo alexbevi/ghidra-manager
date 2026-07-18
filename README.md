@@ -12,7 +12,8 @@ entrypoint on Windows, Linux, and macOS.
 For Codex workflows, this repository also includes the
 [`ghidra-manager` skill](skills/ghidra-manager/SKILL.md). Invoke
 `$ghidra-manager` to inspect managed state, launch and verify projects, connect
-the bridge, compare live projects, or work on the manager itself.
+the bridge, discover managed plugins, compare live projects, or work on the
+manager itself.
 
 ## Install
 
@@ -80,6 +81,20 @@ and previous pairs share one Ghidra release, rollback reinstalls the retained
 extension before changing active state.
 
 `GH_TOKEN` or `GITHUB_TOKEN` may authenticate GitHub API requests.
+
+## Discover Plugins
+
+List the reviewed plugins available from the manager's bundled registry:
+
+```bash
+ghidra-manager plugins discover
+ghidra-manager plugins discover --json
+```
+
+The initial catalog contains `mcp` and `ghidra-lx-loader`. Discovery is
+read-only and works before Ghidra is installed. Plugin versions are resolved
+from stable GitHub releases when a plugin is installed or updated rather than
+being pinned in the registry.
 
 ## Managed State
 

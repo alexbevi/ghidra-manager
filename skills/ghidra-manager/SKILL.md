@@ -1,6 +1,6 @@
 ---
 name: ghidra-manager
-description: Operate and maintain the repository's cross-platform ghidra-manager CLI for compatible Ghidra and GhidraMCP installation, updates, rollback, project and MCP discovery, launches, bridge registration, and compare/apply workflows. Use when Codex needs to inspect or change managed Ghidra state, launch or verify projects, connect GhidraMCP, compare live projects, troubleshoot manager behavior, or modify the Ghidra Manager repository.
+description: Operate and maintain the repository's cross-platform ghidra-manager CLI for Ghidra installation, curated plugin discovery, updates, rollback, project and MCP discovery, launches, bridge registration, and compare/apply workflows. Use when Codex needs to inspect or change managed Ghidra state or plugins, launch or verify projects, connect GhidraMCP, compare live projects, troubleshoot manager behavior, or modify the Ghidra Manager repository.
 ---
 
 # Ghidra Manager
@@ -12,6 +12,8 @@ do not hardcode release versions or platform paths.
 ## Choose the workflow
 
 - Inspect installed and upstream versions with `ghidra-manager status`.
+- Inspect the curated plugin catalog with
+  `ghidra-manager plugins discover [--json]`.
 - Check local RE readiness with `ghidra-manager doctor [PROJECT]` and add
   `--program PROGRAM` when one exact open program is required.
 - Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when

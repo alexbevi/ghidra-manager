@@ -38,6 +38,7 @@ from ghidra_manager.platforms import (
     run_ghidra,
     start_ghidra_instance,
 )
+from ghidra_manager.plugins import load_registry
 from ghidra_manager.processes import managed_ghidra_running
 from ghidra_manager.releases import (
     ReleaseClient,
@@ -69,6 +70,15 @@ class Manager:
 
     def resolved_pair(self) -> ResolvedPair:
         return resolve_pair(self.client)
+
+    def plugin_discovery(self) -> list[dict[str, object]]:
+        """Return the bundled plugin catalog with active selection state."""
+        state = StateStore(self.paths).load()
+        selected = {"mcp"} if state.current is not None else set()
+        return [
+            plugin.as_dict(selected=plugin.plugin_id in selected)
+            for plugin in load_registry()
+        ]
 
     def status_lines(self) -> list[str]:
         store = StateStore(self.paths)

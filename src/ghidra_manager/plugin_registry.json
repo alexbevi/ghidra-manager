@@ -1,0 +1,30 @@
+{
+  "plugins": [
+    {
+      "artifact_pattern": "build/distributions/GhidraMCP-*.zip",
+      "build_task": "buildExtension",
+      "description": "HTTP and stdio integration for agent-driven Ghidra workflows.",
+      "extension_name": "GhidraMCP",
+      "extension_root": "GhidraMCP",
+      "id": "mcp",
+      "name": "GhidraMCP",
+      "repository": "bethington/ghidra-mcp",
+      "runtime_files": {
+        "bridge": "bridge_mcp_ghidra.py",
+        "requirements": "requirements.txt"
+      }
+    },
+    {
+      "artifact_pattern": "dist/*.zip",
+      "build_task": "buildExtension",
+      "description": "Loader for Linear Executable LE and LX binaries.",
+      "extension_name": "LxLoader",
+      "extension_root": "ghidra-lx-loader",
+      "id": "ghidra-lx-loader",
+      "name": "Ghidra LX Loader",
+      "repository": "yetmorecode/ghidra-lx-loader",
+      "runtime_files": {}
+    }
+  ],
+  "schema_version": 1
+}
