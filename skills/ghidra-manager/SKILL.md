@@ -1,0 +1,68 @@
+---
+name: ghidra-manager
+description: Operate and maintain the repository's cross-platform ghidra-manager CLI for compatible Ghidra and GhidraMCP installation, updates, rollback, project and MCP discovery, launches, bridge registration, and compare/apply workflows. Use when Codex needs to inspect or change managed Ghidra state, launch or verify projects, connect GhidraMCP, compare live projects, troubleshoot manager behavior, or modify the Ghidra Manager repository.
+---
+
+# Ghidra Manager
+
+Use `ghidra-manager` as the only user-facing entrypoint. Treat the repository
+`README.md`, package source, and command output as the current source of truth;
+do not hardcode release versions or platform paths.
+
+## Choose the workflow
+
+- Inspect installed and upstream versions with `ghidra-manager status`.
+- Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when
+  the user intends to install or update managed components.
+- List recorded project paths with `ghidra-manager projects`.
+- List responding GhidraMCP processes with `ghidra-manager instances`.
+- Restore the retained compatible pair with `ghidra-manager rollback`.
+- Register the stdio bridge with
+  `codex mcp add ghidra -- ghidra-manager bridge`.
+
+`projects` reports Ghidra's settings registry, not live processes. Use
+`instances` as the runtime truth surface.
+
+## Launch and verify projects
+
+1. Run `ghidra-manager projects` and select the exact `.gpr` path.
+2. Launch one project with `ghidra-manager launch /absolute/path/project.gpr`.
+   Do not substitute the displayed project name; `launch` forwards arguments
+   directly to Ghidra and does not resolve recorded names.
+3. Poll `ghidra-manager instances`. Do not treat the launcher banner or exit
+   code alone as proof that Ghidra stayed running.
+4. If no endpoint appears, confirm CodeBrowser is open, GhidraMCP is enabled,
+   and its server is started from the Ghidra Tools menu.
+
+Use `launch-multi` with two or more distinct `.gpr` paths when separate live
+projects are needed. Inspect its retained `launch-logs/` entry if startup
+fails. Never use `ghidra-manager launch --help` to inspect CLI syntax because
+`launch` forwards `--help` to Ghidra; use `ghidra-manager help`, the README, or
+the package source instead.
+
+## Compare live projects
+
+1. Run `ghidra-manager instances` and use its project names, not `.gpr` paths.
+2. Run `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT`, treating the
+   first project as authoritative.
+3. Review the generated private plan before any write.
+4. Run `ghidra-manager compare --apply PLAN_PATH` only with explicit user
+   authorization. Applying revalidates the target and leaves changes unsaved
+   in Ghidra for review or undo.
+
+## Protect managed state
+
+- Never edit `.managed/` or platform user-data homes directly.
+- Never modify a Ghidra installation outside manager state.
+- Close manager-owned Ghidra processes before `sync` or `rollback`.
+- Preserve stable-release selection, GitHub SHA-256 verification, exact
+  extension compatibility, staged installation, atomic state updates, and a
+  usable current/previous pair when changing manager code.
+
+## Modify the repository
+
+Read `AGENTS.md` and `README.md` before editing. Keep platform behavior behind
+the platform adapter, and update code, tests, and user documentation in one
+self-contained slice. Run the relevant checks from `AGENTS.md`, inspect
+`status` and `git status --short`, and use a Conventional Commit without
+amending existing history.

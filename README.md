@@ -9,6 +9,11 @@ the extension itself, and retains the active pair plus one rollback pair.
 The `ghidra-manager` Python command is the only supported user-facing
 entrypoint on Windows, Linux, and macOS.
 
+For Codex workflows, this repository also includes the
+[`ghidra-manager` skill](skills/ghidra-manager/SKILL.md). Invoke
+`$ghidra-manager` to inspect managed state, launch and verify projects, connect
+the bridge, compare live projects, or work on the manager itself.
+
 ## Install
 
 Install [`uv`](https://docs.astral.sh/uv/) and a 64-bit JDK 21. The CLI uses uv
@@ -95,12 +100,24 @@ pair metadata into versioned JSON. Legacy symlinks are not required afterward.
 
 ## Run Ghidra And GhidraMCP
 
-Launch the active distribution, optionally opening a project:
+List recorded projects to resolve the exact project path:
+
+```bash
+ghidra-manager projects
+```
+
+Launch the active distribution, optionally opening a project by its `.gpr`
+path:
 
 ```bash
 ghidra-manager launch
 ghidra-manager launch /path/to/project.gpr
 ```
+
+`launch` passes all remaining arguments directly to Ghidra. It does not resolve
+a recorded name such as `ripper` to its project path, and `launch --help` is
+therefore forwarded to Ghidra rather than handled as CLI help. Use
+`ghidra-manager help` for the manager command summary.
 
 On the first launch for a new Ghidra settings version:
 
@@ -110,17 +127,16 @@ On the first launch for a new Ghidra settings version:
 3. Select **Tools > GhidraMCP > Start MCP Server**.
 
 The plugin listens on `127.0.0.1:8089` by default and may fall back through
-port 8104. List responding instances:
+port 8104. Verify the launch by listing responding instances; the launcher
+banner or exit code alone does not prove that Ghidra stayed running:
 
 ```bash
 ghidra-manager instances
 ```
 
-List projects from Ghidra's platform-specific settings registry:
-
-```bash
-ghidra-manager projects
-```
+`projects` reads Ghidra's settings registry, while `instances` reports live
+GhidraMCP endpoints. A running Project Window does not appear in `instances`
+until CodeBrowser is open and the plugin server is active.
 
 Launch one process per project and wait for new MCP endpoints:
 
@@ -198,6 +214,8 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
 - **GitHub rate limit:** set `GH_TOKEN` or `GITHUB_TOKEN`.
 - **MCP connection refused:** open CodeBrowser, enable GhidraMCP, and start its
   server from **Tools > GhidraMCP**.
+- **Invalid project:** pass the `.gpr` path reported by the `projects` command,
+  not only its display name.
 - **Multi-launch timeout:** finish opening CodeBrowser in each project, then run
   `ghidra-manager instances`.
 - **Update refused:** close all processes running from the managed Ghidra
