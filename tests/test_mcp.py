@@ -6,7 +6,16 @@ from ghidra_manager.mcp import DEFAULT_PORT, discover_instances, validate_base_p
 
 def test_discovery_accepts_wrapped_and_direct_records() -> None:
     records: dict[int, object] = {
-        DEFAULT_PORT + 2: {"data": {"pid": 42, "project": "second\nproject"}},
+        DEFAULT_PORT + 2: {
+            "data": {
+                "pid": 42,
+                "project": "second\nproject",
+                "programs": [
+                    {"name": "OPEN.EXE", "open": True},
+                    {"name": "CLOSED.EXE", "open": False},
+                ],
+            }
+        },
         DEFAULT_PORT: {"pid": 7, "project": "first"},
         DEFAULT_PORT + 1: {"pid": "invalid"},
     }
@@ -17,6 +26,7 @@ def test_discovery_accepts_wrapped_and_direct_records() -> None:
         (DEFAULT_PORT, 7, "first"),
         (DEFAULT_PORT + 2, 42, "second project"),
     ]
+    assert instances[1].programs == ("OPEN.EXE",)
 
 
 @pytest.mark.parametrize("value", [0, -1, 65521])

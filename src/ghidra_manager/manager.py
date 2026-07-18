@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -184,32 +185,7 @@ class Manager:
         ]
 
     def projects(self, *, base_port: int = DEFAULT_PORT) -> list[str]:
-        store = StateStore(self.paths)
-        state = store.load()
-        if state.current is None:
-            raise ManagerError("No active pair. Run ghidra-manager sync first.")
-        pair = store.pair(state.current)
-        application = self.paths.ghidra / pair.ghidra_version / "Ghidra/application.properties"
-        if not application.is_file():
-            raise ManagerError("Active Ghidra application metadata is missing")
-        release_name = read_properties(application).get("application.release.name")
-        if not release_name:
-            raise ManagerError("Active Ghidra release name is missing")
-        settings_dir = ghidra_settings_dir(pair.ghidra_version, release_name)
-        preferences = settings_dir / "preferences"
-        if not preferences.is_file():
-            raise ManagerError(
-                f"No Ghidra project registry found at {preferences}. Launch Ghidra once first."
-            )
-        values = read_properties(preferences)
-        recent = values.get("RecentProjects", "").split(";")
-        last_opened = self._project_base(values.get("LastOpenedProject", ""))
-        known = ([last_opened] if last_opened else []) + recent
-        unique: list[str] = []
-        for item in known:
-            base = self._project_base(item)
-            if base and base not in unique:
-                unique.append(base)
+        pair, preferences, unique, last_opened = self._project_registry()
         if not unique:
             return [f"Ghidra has no recorded projects in {preferences}."]
         active = {instance.project: instance for instance in self.instance_discovery(base_port)}
@@ -237,6 +213,96 @@ class Manager:
             )
         lines.append(f"{len(unique)} recorded projects from {preferences}")
         return lines
+
+    def _project_registry(self) -> tuple[PairMetadata, Path, list[str], str]:
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        pair = store.pair(state.current)
+        application = self.paths.ghidra / pair.ghidra_version / "Ghidra/application.properties"
+        if not application.is_file():
+            raise ManagerError("Active Ghidra application metadata is missing")
+        release_name = read_properties(application).get("application.release.name")
+        if not release_name:
+            raise ManagerError("Active Ghidra release name is missing")
+        settings_dir = ghidra_settings_dir(pair.ghidra_version, release_name)
+        preferences = settings_dir / "preferences"
+        if not preferences.is_file():
+            raise ManagerError(
+                f"No Ghidra project registry found at {preferences}. Launch Ghidra once first."
+            )
+        values = read_properties(preferences)
+        recent = values.get("RecentProjects", "").split(";")
+        last_opened = self._project_base(values.get("LastOpenedProject", ""))
+        known = ([last_opened] if last_opened else []) + recent
+        unique: list[str] = []
+        for item in known:
+            base = self._project_base(item)
+            if base and base not in unique:
+                unique.append(base)
+        return pair, preferences, unique, last_opened
+
+    def open_project(
+        self,
+        project: str,
+        *,
+        program: str | None = None,
+        timeout: int = 180,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[str]:
+        if timeout <= 0:
+            raise ManagerError("Timeout must be a positive integer")
+        pair = self._require_active_pair()
+        project_path = self._resolve_project(project)
+        baseline = self.instance_discovery(base_port)
+        active = next((item for item in baseline if item.project == project_path.stem), None)
+        if active:
+            raise ManagerError(
+                f"Project is already active in a GhidraMCP instance: {project_path.stem} "
+                f"on port {active.port}"
+            )
+        java_home = find_java21()
+        install = self.paths.ghidra / pair.ghidra_version
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        log_path = self.paths.home / "launch-logs" / f"{stamp}-open-{project_path.stem}.log"
+        process = start_ghidra_instance(install, project_path, java_home, log_path)
+        lines = [
+            f"Opening {project_path} with Ghidra {pair.ghidra_version} and JDK 21...",
+            f"Launcher PID {process.pid} | log {log_path}",
+            f"Waiting up to {timeout} seconds for project {project_path.stem} "
+            f"on ports {base_port}-{base_port + 15}...",
+        ]
+        time.sleep(1)
+        self._require_running_launch(process, log_path)
+        baseline_pids = {instance.pid for instance in baseline}
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            scanned = self.instance_discovery(base_port)
+            match = next(
+                (
+                    item
+                    for item in scanned
+                    if item.pid not in baseline_pids
+                    and item.project == project_path.stem
+                    and (program is None or program in item.programs)
+                ),
+                None,
+            )
+            if match:
+                lines.append("GhidraMCP instance ready:")
+                lines.extend(self._instance_lines([match]))
+                if match.programs:
+                    lines.append(f"Open programs: {', '.join(match.programs)}")
+                return lines
+            self._require_running_launch(process, log_path)
+            time.sleep(2)
+        expectation = f" with program {program}" if program else ""
+        raise ManagerError(
+            f"No new GhidraMCP endpoint reported project {project_path.stem}{expectation} "
+            f"within {timeout} seconds. Open CodeBrowser, enable GhidraMCP, and inspect "
+            f"{log_path}."
+        )
 
     def launch(self, arguments: list[str]) -> tuple[str, int]:
         store = StateStore(self.paths)
@@ -406,6 +472,30 @@ class Manager:
         if len(matches) != 1:
             raise ManagerError(f"Multiple responding instances have project name: {project}")
         return matches[0]
+
+    def _resolve_project(self, value: str) -> Path:
+        candidate = Path(value)
+        if candidate.suffix or candidate.is_absolute() or candidate.parent != Path("."):
+            return self._normalize_project(value)
+        _, _, recorded, _ = self._project_registry()
+        matches = [Path(base).with_suffix(".gpr") for base in recorded if Path(base).name == value]
+        if not matches:
+            raise ManagerError(
+                f"No recorded Ghidra project has name: {value}. Run ghidra-manager projects."
+            )
+        if len(matches) > 1:
+            paths = ", ".join(str(path) for path in matches)
+            raise ManagerError(f"Recorded Ghidra project name is ambiguous: {value}: {paths}")
+        return self._normalize_project(str(matches[0]))
+
+    @staticmethod
+    def _require_running_launch(
+        process: subprocess.Popen[bytes], log_path: Path
+    ) -> None:
+        if process.poll() is None:
+            return
+        detail = log_path.read_text(encoding="utf-8", errors="replace")[:4000]
+        raise ManagerError(f"Ghidra exited during startup; see {log_path}\n{detail}")
 
     @staticmethod
     def _normalize_project(value: str) -> Path:

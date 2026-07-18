@@ -106,6 +106,18 @@ List recorded projects to resolve the exact project path:
 ghidra-manager projects
 ```
 
+Open a recorded project by name or `.gpr` path and wait for its GhidraMCP
+endpoint:
+
+```bash
+ghidra-manager open ripper
+ghidra-manager open /path/to/ripper.gpr --program RIPPER.LE
+```
+
+`open` retains a startup log, rejects an already-active project, and reports
+success only after a new endpoint identifies the expected project and optional
+program. Use `--timeout` or `--base-port` to override discovery defaults.
+
 Launch the active distribution, optionally opening a project by its `.gpr`
 path:
 
@@ -216,6 +228,8 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
   server from **Tools > GhidraMCP**.
 - **Invalid project:** pass the `.gpr` path reported by the `projects` command,
   not only its display name.
+- **Open timeout:** finish opening CodeBrowser, enable GhidraMCP, and inspect the
+  retained log path reported by `open`.
 - **Multi-launch timeout:** finish opening CodeBrowser in each project, then run
   `ghidra-manager instances`.
 - **Update refused:** close all processes running from the managed Ghidra

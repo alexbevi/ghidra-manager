@@ -15,6 +15,7 @@ do not hardcode release versions or platform paths.
 - Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when
   the user intends to install or update managed components.
 - List recorded project paths with `ghidra-manager projects`.
+- Open and verify one recorded project with `ghidra-manager open PROJECT`.
 - List responding GhidraMCP processes with `ghidra-manager instances`.
 - Restore the retained compatible pair with `ghidra-manager rollback`.
 - Register the stdio bridge with
@@ -25,14 +26,14 @@ do not hardcode release versions or platform paths.
 
 ## Launch and verify projects
 
-1. Run `ghidra-manager projects` and select the exact `.gpr` path.
-2. Launch one project with `ghidra-manager launch /absolute/path/project.gpr`.
-   Do not substitute the displayed project name; `launch` forwards arguments
-   directly to Ghidra and does not resolve recorded names.
-3. Poll `ghidra-manager instances`. Do not treat the launcher banner or exit
-   code alone as proof that Ghidra stayed running.
-4. If no endpoint appears, confirm CodeBrowser is open, GhidraMCP is enabled,
-   and its server is started from the Ghidra Tools menu.
+1. Prefer `ghidra-manager open PROJECT --program PROGRAM` for a single recorded
+   project. It resolves the name, retains a startup log, and waits for the
+   expected MCP project and optional program.
+2. Use `ghidra-manager launch /absolute/path/project.gpr` only when raw Ghidra
+   argument forwarding is required. Do not substitute a recorded project name.
+3. If `open` times out, confirm CodeBrowser is open, GhidraMCP is enabled, and
+   its server is started from the Ghidra Tools menu, then inspect the reported
+   log.
 
 Use `launch-multi` with two or more distinct `.gpr` paths when separate live
 projects are needed. Inspect its retained `launch-logs/` entry if startup

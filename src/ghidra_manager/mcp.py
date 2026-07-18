@@ -22,6 +22,7 @@ class Instance:
     port: int
     pid: int
     project: str
+    programs: tuple[str, ...] = ()
 
     @property
     def url(self) -> str:
@@ -59,7 +60,19 @@ def _parse_instance(port: int, value: object | None) -> Instance | None:
         .replace("\r", " ")
         .replace("\n", " ")
     )
-    return Instance(port=port, pid=record["pid"], project=project)
+    raw_programs = record.get("programs")
+    programs = (
+        tuple(
+            str(item["name"])
+            for item in raw_programs
+            if isinstance(item, dict)
+            and item.get("name")
+            and item.get("open", True) is True
+        )
+        if isinstance(raw_programs, list)
+        else ()
+    )
+    return Instance(port=port, pid=record["pid"], project=project, programs=programs)
 
 
 def discover_instances(

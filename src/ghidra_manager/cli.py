@@ -36,6 +36,21 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("status", help="Show installed and upstream versions")
     commands.add_parser("rollback", help="Swap to the previously active compatible pair")
     commands.add_parser("projects", help="List projects recorded by the active Ghidra version")
+    open_project = commands.add_parser(
+        "open", help="Open a recorded Ghidra project and wait for its MCP endpoint"
+    )
+    open_project.add_argument("project")
+    open_project.add_argument("--program")
+    open_project.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("GHIDRA_MCP_LAUNCH_TIMEOUT", "180")),
+    )
+    open_project.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
     launch = commands.add_parser(
         "launch", help="Launch one active Ghidra with JDK 21", add_help=False
     )
@@ -119,6 +134,15 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "projects":
         base_port = int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT))
         for line in Manager.discover().projects(base_port=base_port):
+            print(line)
+        return 0
+    if args.command == "open":
+        for line in Manager.discover().open_project(
+            args.project,
+            program=args.program,
+            timeout=args.timeout,
+            base_port=args.base_port,
+        ):
             print(line)
         return 0
     if args.command == "launch":
