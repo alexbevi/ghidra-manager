@@ -1,4 +1,4 @@
 interface:
   display_name: "Ghidra Manager"
   short_description: "Manage Ghidra plugins and RE workflows"
-  default_prompt: "Use $ghidra-manager to inspect managed Ghidra state, discover plugins, and choose the safe next reverse-engineering workflow."
+  default_prompt: "Use $ghidra-manager to inspect managed Ghidra, safely install or remove curated plugins, and verify the reverse-engineering workflow."

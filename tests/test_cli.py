@@ -188,6 +188,18 @@ def test_plugins_install_output(monkeypatch, capsys) -> None:  # type: ignore[no
     assert "Installed plugin ghidra-lx-loader" in capsys.readouterr().out
 
 
+def test_plugins_remove_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def plugin_remove(self, plugin: str) -> list[str]:
+            assert plugin == "mcp"
+            return ["Removed plugin mcp from Ghidra 12.1.2."]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["plugins", "remove", "mcp"]) == 0
+    assert capsys.readouterr().out == "Removed plugin mcp from Ghidra 12.1.2.\n"
+
+
 def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
         def launch(self, arguments: list[str]) -> tuple[str, int]:

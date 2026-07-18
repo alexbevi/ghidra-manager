@@ -41,6 +41,8 @@ needs structured readiness details without upstream release resolution.
 5. Install `ghidra-lx-loader` before importing an LE/LX executable, then
    relaunch Ghidra so the loader is available.
 6. Verify the selected tag and commit with `ghidra-manager plugins list`.
+7. Remove an optional plugin with `ghidra-manager plugins remove PLUGIN`; use
+   `rollback` if the prior complete set must be restored.
 
 Plugin install also updates an already-selected plugin. It builds the newest
 stable release tag against the active Ghidra and leaves the prior pair usable

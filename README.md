@@ -84,7 +84,7 @@ state, including when both pairs share one Ghidra release.
 
 `GH_TOKEN` or `GITHUB_TOKEN` may authenticate GitHub API requests.
 
-## Discover Plugins
+## Manage Plugins
 
 List the reviewed plugins available from the manager's bundled registry:
 
@@ -106,6 +106,7 @@ Install or update one plugin for the active Ghidra release:
 ghidra-manager sync
 ghidra-manager plugins install mcp
 ghidra-manager plugins install ghidra-lx-loader
+ghidra-manager plugins remove ghidra-lx-loader
 ```
 
 Plugin installation requires an active Ghidra installation and refuses to
@@ -113,6 +114,8 @@ replace extensions while a manager-owned Ghidra process is running. The
 manager resolves the latest stable plugin release tag to its immutable commit,
 uses the target Ghidra distribution's Gradle wrapper, validates the generated
 extension ZIP, then activates the complete selected set transactionally.
+Removal is idempotent and creates a rollback pair that retains the removed
+artifact until it is no longer referenced.
 
 Install `mcp` before using `bridge`, `instances`, `open`, `launch-multi`, or
 `compare`. Install `ghidra-lx-loader` before importing LE/LX binaries such as

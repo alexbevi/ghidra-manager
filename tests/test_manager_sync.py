@@ -11,7 +11,9 @@ import pytest
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.manager import Manager
+from ghidra_manager.models import ManagerState
 from ghidra_manager.storage import StateStore
+from tests.plugin_fixtures import managed_pair
 
 COMMIT = "a" * 40
 
@@ -206,3 +208,63 @@ def test_failed_plugin_build_leaves_pair_and_extensions_unchanged(
 
     assert StateStore(paths).load() == original
     assert not (paths.ghidra / "12.1.2/Ghidra/Extensions/GhidraMCP").exists()
+
+
+def test_plugin_remove_is_idempotent_and_rollback_restores_plugin(
+    monkeypatch, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    paths = ManagerPaths(tmp_path / "managed")
+    manager = Manager(paths, SyncClient(), process_check=lambda _: False)
+    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.manager.run_plugin_build", _fake_build)
+    manager.sync()
+    manager.plugin_install("mcp")
+    installed = paths.ghidra / "12.1.2/Ghidra/Extensions/GhidraMCP"
+
+    assert manager.plugin_remove("mcp") == ["Removed plugin mcp from Ghidra 12.1.2."]
+    assert not installed.exists()
+    assert manager.plugin_remove("mcp") == ["Plugin is not installed: mcp."]
+
+    assert manager.rollback() == ["Rolled back to Ghidra 12.1.2; plugins mcp."]
+    assert installed.is_dir()
+
+
+def test_plugin_remove_refuses_running_ghidra(tmp_path: Path) -> None:
+    paths = ManagerPaths(tmp_path / "managed")
+    client = SyncClient()
+    manager = Manager(paths, client, process_check=lambda _: False)
+    store = StateStore(paths)
+    manager.sync()
+    selected = managed_pair(pair_id="selected", ghidra_tag="Ghidra_12.1.2_build")
+    store.save_pair(selected)
+    store.save(ManagerState(current="selected"))
+    blocked = Manager(paths, client, process_check=lambda _: True)
+
+    with pytest.raises(ManagerError, match="Close the managed Ghidra"):
+        blocked.plugin_remove("mcp")
+
+
+def test_activation_failure_restores_previous_extension(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    paths = ManagerPaths(tmp_path / "managed")
+    manager = Manager(paths, SyncClient(), process_check=lambda _: False)
+    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.manager.run_plugin_build", _fake_build)
+    manager.sync()
+    manager.plugin_install("mcp")
+    store = StateStore(paths)
+    pair = store.pair(store.load().current or "")
+    marker = paths.ghidra / "12.1.2/Ghidra/Extensions/GhidraMCP/.manager-plugin.json"
+    original = marker.read_bytes()
+
+    def fail_marker(path: Path, *_args, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        if path.name == ".manager-plugin.json":
+            raise ManagerError("marker write failed")
+
+    monkeypatch.setattr("ghidra_manager.manager.atomic_json", fail_marker)
+    transaction = tmp_path / "activation-failure"
+    transaction.mkdir()
+
+    with pytest.raises(ManagerError, match="marker write failed"):
+        manager._activate_plugins(pair, transaction)
+
+    assert marker.read_bytes() == original

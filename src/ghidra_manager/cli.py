@@ -58,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
         "install", help="Build and install a plugin for the active Ghidra"
     )
     plugin_install.add_argument("plugin")
+    plugin_remove = plugin_commands.add_parser(
+        "remove", help="Remove a plugin from the active Ghidra"
+    )
+    plugin_remove.add_argument("plugin")
     open_project = commands.add_parser(
         "open", help="Open a recorded Ghidra project and wait for its MCP endpoint"
     )
@@ -215,6 +219,10 @@ def run(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.plugin_command == "install":
             for line in Manager.discover().plugin_install(args.plugin):
+                print(line)
+            return 0
+        if args.plugin_command == "remove":
+            for line in Manager.discover().plugin_remove(args.plugin):
                 print(line)
             return 0
         raise AssertionError(f"Unhandled plugin command: {args.plugin_command}")

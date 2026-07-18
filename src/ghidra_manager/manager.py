@@ -502,6 +502,31 @@ class Manager:
             f"Installed plugin {plugin_id} {source.version} for Ghidra {current.ghidra_version}."
         ]
 
+    def plugin_remove(self, plugin_id: str) -> list[str]:
+        plugin_definition(plugin_id)
+        store = StateStore(self.paths)
+        state = store.load()
+        if state.current is None:
+            raise ManagerError("No active pair. Run ghidra-manager sync first.")
+        current = store.pair(state.current)
+        if current.plugin(plugin_id) is None:
+            return [f"Plugin is not installed: {plugin_id}."]
+        if self.process_check(self.paths.ghidra):
+            raise ManagerError("Close the managed Ghidra instance before removing plugins")
+        plugins = tuple(plugin for plugin in current.plugins if plugin.plugin_id != plugin_id)
+        pair = self._pair_metadata(
+            current.ghidra_version,
+            current.ghidra_tag,
+            plugins,
+        )
+        self.paths.home.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="plugin-remove-", dir=self.paths.home) as value:
+            self._activate_plugins(pair, Path(value))
+            store.save_pair(pair)
+            store.save(ManagerState(current=pair.pair_id, previous=current.pair_id))
+        self._prune(store.load())
+        return [f"Removed plugin {plugin_id} from Ghidra {current.ghidra_version}."]
+
     def rollback(self) -> list[str]:
         store = StateStore(self.paths)
         state = store.load()
