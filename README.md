@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="Ghidra Manager logo" width="240">
+</p>
+
 # Ghidra Manager
 
 Ghidra Manager is a cross-platform CLI for installing Ghidra and compiling a
