@@ -30,6 +30,10 @@ do not hardcode release versions or platform paths.
 `instances` as the runtime truth surface. Prefer `doctor --json` when Codex
 needs structured readiness details without upstream release resolution.
 
+The reviewed catalog is bundled in `src/ghidra_manager/plugin_registry.json`;
+it is not a remote marketplace. Do not invent plugin IDs or infer that an
+arbitrary Ghidra extension is managed because it exists upstream.
+
 ## Manage plugins
 
 1. Run `ghidra-manager sync` before installing a plugin on a fresh manager.
@@ -65,6 +69,28 @@ fails. Never use `ghidra-manager launch --help` to inspect CLI syntax because
 `launch` forwards `--help` to Ghidra; use `ghidra-manager help`, the README, or
 the package source instead.
 
+## Work with multiple programs in one project
+
+1. Use `ghidra-manager open PROJECT` and `ghidra-manager instances` to verify
+   the live project and MCP endpoint.
+2. List the programs through MCP and record each full Ghidra project path, such
+   as `/RIPPER.LE` and `/v1.05/RIPPER.EXE`.
+3. Pass the full `program` path on every MCP read or write when multiple
+   programs are open. Do not rely on the active CodeBrowser tab.
+4. Treat `--program` on `open` and `doctor` as an optional readiness assertion:
+   omit it for project-only checks and supply it when one exact program must be
+   open.
+5. After installing a loader plugin, relaunch Ghidra before importing, then
+   verify the imported executable format, language, project path, analysis
+   status, and function count.
+
+For same-project version comparison, match functions only with strong evidence.
+Unique normalized opcode hash plus instruction count is safe for automatic
+documentation transfer; structurally changed or duplicate-hash functions need
+separate review. Preserve existing target metadata and never copy
+offset-sensitive comments or address-derived `switchD_*` namespaces onto a
+changed body.
+
 ## Compare live projects
 
 1. Run `ghidra-manager instances` and use its project names, not `.gpr` paths.
@@ -74,6 +100,10 @@ the package source instead.
 4. Run `ghidra-manager compare --apply PLAN_PATH` only with explicit user
    authorization. Applying revalidates the target and leaves changes unsaved
    in Ghidra for review or undo.
+
+This command requires two distinct responding project instances. When two
+programs are open inside one project, use explicit full-path MCP calls as
+described above; do not launch the same project twice.
 
 ## Protect managed state
 

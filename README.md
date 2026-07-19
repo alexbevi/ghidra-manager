@@ -11,9 +11,12 @@ entrypoint on Windows, Linux, and macOS.
 
 For Codex workflows, this repository also includes the
 [`ghidra-manager` skill](skills/ghidra-manager/SKILL.md). Invoke
-`$ghidra-manager` to inspect managed state, launch and verify projects, connect
-the bridge, discover managed plugins, compare live projects, or work on the
-manager itself.
+`$ghidra-manager` to inspect managed state, choose reviewed plugins, launch and
+verify projects, connect the bridge, target exact programs inside a project,
+compare binaries, or work on the manager itself. The skill follows the same
+safety rules as the CLI: use `instances` as runtime truth, identify programs
+explicitly when more than one is open, and review comparison results before a
+write.
 
 ## Install
 
@@ -59,6 +62,16 @@ Show active, retained, and newest upstream versions:
 ghidra-manager status
 ```
 
+Representative output:
+
+```text
+Active Ghidra:      <ghidra-version>
+Active plugin:      ghidra-lx-loader <plugin-version> (installed)
+Active plugin:      mcp <plugin-version> (installed)
+Previous pair:      Ghidra <previous-version>; plugins mcp
+Upstream Ghidra:    <ghidra-version>
+```
+
 Check local reverse-engineering readiness without resolving upstream releases:
 
 ```bash
@@ -71,6 +84,17 @@ ghidra-manager doctor ripper --program RIPPER.LE --json
 recorded project, responding MCP identity and versions, expected open program,
 endpoint catalog, and analysis status. Errors produce a nonzero exit code;
 warnings remain successful so partial environments can be inspected.
+
+Representative ready output:
+
+```text
+OK      active-pair: Ghidra <version>; plugins ghidra-lx-loader, mcp
+OK      project: /projects/ripper.gpr
+OK      instance: PID <pid> on http://127.0.0.1:8089
+OK      program: RIPPER.EXE is open
+OK      analysis: RIPPER.EXE analyzed; 847 functions
+Doctor result: ready
+```
 
 Return to the retained previous pair:
 
@@ -95,10 +119,28 @@ ghidra-manager plugins list
 ghidra-manager plugins list --json
 ```
 
-The initial catalog contains `mcp` and `ghidra-lx-loader`. Discovery is
-read-only and works before Ghidra is installed. Plugin versions are resolved
-from stable GitHub releases when a plugin is installed or updated rather than
-being pinned in the registry.
+The bundled registry is
+[`src/ghidra_manager/plugin_registry.json`](src/ghidra_manager/plugin_registry.json),
+not a remote marketplace. Its initial reviewed catalog contains `mcp` and
+`ghidra-lx-loader`. Discovery is read-only and works before Ghidra is installed.
+Plugin versions are resolved from stable GitHub releases when a plugin is
+installed or updated rather than being pinned in the registry.
+
+`discover` shows registry membership and whether each plugin is selected in
+the active pair:
+
+```text
+mcp | GhidraMCP | selected | bethington/ghidra-mcp
+ghidra-lx-loader | Ghidra LX Loader | selected | yetmorecode/ghidra-lx-loader
+```
+
+`list` shows the resolved artifacts for the active Ghidra release:
+
+```text
+Plugins for Ghidra <ghidra-version>:
+ghidra-lx-loader | <plugin-version> | <release-tag> | <source-commit>
+mcp | <plugin-version> | <release-tag> | <source-commit>
+```
 
 Install or update one plugin for the active Ghidra release:
 
@@ -170,6 +212,15 @@ List recorded projects to resolve the exact project path:
 ghidra-manager projects
 ```
 
+Representative output:
+
+```text
+Projects known to Ghidra <version>:
+ripper | ready | last-opened | active MCP port 8089 (PID <pid>) | /projects/ripper.gpr
+harvester | ready | recent | inactive | /projects/harvester.gpr
+2 recorded projects from <ghidra-settings>/preferences
+```
+
 Open a recorded project by name or `.gpr` path and wait for its GhidraMCP
 endpoint:
 
@@ -181,6 +232,17 @@ ghidra-manager open /path/to/ripper.gpr --program RIPPER.LE
 `open` retains a startup log, rejects an already-active project, and reports
 success only after a new endpoint identifies the expected project and optional
 program. Use `--timeout` or `--base-port` to override discovery defaults.
+
+Representative output:
+
+```text
+Opening /projects/ripper.gpr with Ghidra <version> and JDK 21...
+Launcher PID <launcher-pid> | log <manager-home>/launch-logs/<launch>.log
+Waiting up to 180 seconds for project ripper on ports 8089-8104...
+GhidraMCP instance ready:
+MCP port 8089 | PID <pid> | project ripper | http://127.0.0.1:8089
+Open programs: RIPPER.LE
+```
 
 Launch the active distribution, optionally opening a project by its `.gpr`
 path:
@@ -208,6 +270,12 @@ banner or exit code alone does not prove that Ghidra stayed running:
 
 ```bash
 ghidra-manager instances
+```
+
+Representative output:
+
+```text
+MCP port 8089 | PID <pid> | project ripper | http://127.0.0.1:8089
 ```
 
 `projects` reads Ghidra's settings registry, while `instances` reports live
@@ -242,6 +310,128 @@ ghidra-manager bridge --help
 `GHIDRA_MCP_BASE_PORT` changes the discovery base port.
 `GHIDRA_MCP_LAUNCH_TIMEOUT` changes the multi-launch timeout.
 
+## Use With Codex
+
+The bundled [`ghidra-manager` skill](skills/ghidra-manager/SKILL.md) teaches
+Codex the manager's command boundaries, plugin lifecycle, launch checks, and
+comparison safeguards. The repository directory is the source of truth; install
+or link `skills/ghidra-manager` as `$CODEX_HOME/skills/ghidra-manager` and start
+a new Codex session to make `$ghidra-manager` available. Once the skill and
+bridge are available, a request can name the skill explicitly:
+
+```text
+Use $ghidra-manager to inspect the active Ghidra pair, discover the reviewed
+plugins, open the ripper project, and confirm its MCP program before making any
+changes.
+```
+
+The CLI identifies a live project; GhidraMCP identifies programs inside it.
+When multiple programs are open, use their full Ghidra project paths on MCP
+calls instead of relying on the active tab:
+
+```text
+/RIPPER.LE
+/v1.05/RIPPER.EXE
+```
+
+`--program` is optional on `open` and `doctor`. Supply it when readiness depends
+on one exact open program. Within MCP calls, always supply `program` when more
+than one program is open.
+
+## End-to-End Example: Compare RIPPER With v1.05
+
+This example starts with an analyzed `/RIPPER.LE` in a recorded project named
+`ripper` and a patched DOS/4GW executable at
+`/path/to/Ripper/RIPPER/RIPPER.EXE`.
+
+### 1. Install the reviewed runtime
+
+Install Ghidra, inspect the bundled registry, and add both plugins before
+launching Ghidra:
+
+```bash
+ghidra-manager sync
+ghidra-manager plugins discover
+ghidra-manager plugins install mcp
+ghidra-manager plugins install ghidra-lx-loader
+ghidra-manager plugins list
+```
+
+Plugin installation compiles each stable release for the active Ghidra version.
+Close manager-owned Ghidra processes before installing or updating a plugin.
+
+### 2. Register the bridge and verify the project
+
+```bash
+codex mcp add ghidra -- ghidra-manager bridge
+ghidra-manager projects
+ghidra-manager open ripper --program RIPPER.LE
+ghidra-manager instances
+ghidra-manager doctor ripper --program RIPPER.LE
+```
+
+At this point the manager has proven which Ghidra, plugin set, JDK, project,
+process, port, and program are in use.
+
+### 3. Import the patched executable through MCP
+
+The manager does not duplicate Ghidra's import API. Ask Codex to use GhidraMCP
+after the verified launch:
+
+```text
+Use $ghidra-manager. In the ripper project, create the virtual folder /v1.05
+and import /path/to/Ripper/RIPPER/RIPPER.EXE there with the LX loader. Keep
+/RIPPER.LE unchanged. Run analysis, save the new program, and verify its format,
+project path, and function count through MCP.
+```
+
+The important verification is the loader result, not just a successful import:
+
+```text
+name:              RIPPER.EXE
+project path:      /v1.05/RIPPER.EXE
+executable format: Linear Executable (LE-Style DOS)
+language:          x86:LE:32:default
+analysis:          complete
+```
+
+### 4. Compare and synchronize conservatively
+
+Both binaries can share one MCP instance while remaining unambiguous:
+
+```text
+/RIPPER.LE            original documentation source
+/v1.05/RIPPER.EXE     patched v1.05 target
+```
+
+For programs in one project, ask Codex to query GhidraMCP with those full paths.
+Transfer function documentation only for unique exact normalized-code matches,
+preserve target conflicts, and review changed functions separately. Portable
+datatype graphs such as structures, enums, arrays, pointers, and function
+signatures can be copied source-to-target after equivalence checks; do not copy
+address-derived `switchD_*` namespaces between rebuilt binaries.
+
+The RIPPER run that informed this tutorial produced:
+
+```text
+Original /RIPPER.LE:        1,682 functions, 561 data types
+Target /v1.05/RIPPER.EXE:     847 functions, 567 data types
+Unique exact matches:          675 functions
+Target documentation:          679/847 functions (80.2%)
+Copied source data types:       561/561 equivalent
+```
+
+Those counts are specific to this sample. The reusable value is the guarded
+workflow: reproducible plugins, verified runtime identity, explicit program
+paths, exact-match transfer, conflict preservation, and post-save health checks.
+
+Finish with:
+
+```bash
+ghidra-manager doctor ripper --program RIPPER.EXE
+ghidra-manager instances
+```
+
 ## Compare Binaries Across Instances
 
 Treat the first responding project as the documentation source and the second
@@ -267,6 +457,10 @@ ghidra-manager compare --apply \
 Apply rechecks target project, PID, function hashes, documentation, and type
 state. It stops on the first rejected operation and deliberately leaves changes
 unsaved in Ghidra for review or undo.
+
+`compare` requires two distinct responding project instances. For two programs
+inside one project, use the full-path MCP workflow in the RIPPER example instead
+of trying to launch the same project twice.
 
 ## Validation
 
