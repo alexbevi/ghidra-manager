@@ -18,6 +18,38 @@ safety rules as the CLI: use `instances` as runtime truth, identify programs
 explicitly when more than one is open, and review comparison results before a
 write.
 
+## Command Summary
+
+The examples below abbreviate paths, process IDs, and versions with angle
+brackets. Running `ghidra-manager` without a subcommand is equivalent to
+`ghidra-manager sync`.
+
+| Command | Options | Sample output |
+| --- | --- | --- |
+| `ghidra-manager help` | Global: `-h`, `--help` | `usage: ghidra-manager ... {help,sync,status,...}` |
+| `ghidra-manager --version` | None | `ghidra-manager 0.1.0` |
+| `ghidra-manager sync` | `--dry-run` resolves without changing state | `Active pair: Ghidra <version>; plugins ghidra-lx-loader, mcp.` |
+| `ghidra-manager status` | None | `Active Ghidra: <version>` |
+| `ghidra-manager doctor [PROJECT]` | `--program PROGRAM`, `--json`, `--base-port PORT` | `Doctor result: ready` |
+| `ghidra-manager rollback` | None | `Rolled back to Ghidra <version>; plugins mcp.` |
+| `ghidra-manager projects` | None | `Projects known to Ghidra <version>:` |
+| `ghidra-manager plugins discover` | `--json` | `mcp` is reported as `selected` or `available` |
+| `ghidra-manager plugins list` | `--json` | `Plugins for Ghidra <version>:` |
+| `ghidra-manager plugins install PLUGIN` | `mcp` or `ghidra-lx-loader` | `Installed plugin mcp <version> for Ghidra <version>.` |
+| `ghidra-manager plugins remove PLUGIN` | `mcp` or `ghidra-lx-loader` | `Removed plugin mcp from Ghidra <version>.` |
+| `ghidra-manager open PROJECT` | `--program PROGRAM`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instance ready:` |
+| `ghidra-manager launch [GHIDRA_ARGS...]` | Remaining arguments pass through to Ghidra | `Launching Ghidra <version> with JDK 21...` |
+| `ghidra-manager launch-multi [PROJECT.gpr ...]` | `--count N`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instances ready:` |
+| `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
+| `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
+| `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
+| `ghidra-manager instances` | `--base-port PORT` | `MCP port 8089` |
+
+`launch` and `bridge` deliberately pass remaining arguments through rather than
+interpreting them. Environment variables can also set the manager home, MCP
+base port, launch timeout, and GitHub authentication; those are described in
+the detailed sections below.
+
 ## Install
 
 Install [`uv`](https://docs.astral.sh/uv/) and a 64-bit JDK 21. The CLI uses uv
