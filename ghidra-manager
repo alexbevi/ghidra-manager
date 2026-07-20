@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+manager_root=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+
+exec uv run --project "$manager_root" --locked ghidra-manager "$@"

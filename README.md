@@ -10,8 +10,10 @@ releases, requires GitHub-published SHA-256 digests for release assets, builds
 plugins from immutable release commits, and retains the active installation
 plus one complete rollback pair.
 
-The `ghidra-manager` Python command is the only supported user-facing
-entrypoint on Windows, Linux, and macOS.
+The packaged `ghidra-manager` Python command is the only supported user-facing
+entrypoint on Windows, Linux, and macOS. For macOS and Linux source checkouts,
+the repository also provides a thin `./ghidra-manager` shell wrapper that runs
+that same command through uv.
 
 For Codex workflows, this repository also includes the
 [`ghidra-manager` skill](skills/ghidra-manager/SKILL.md). Invoke
@@ -26,7 +28,8 @@ write.
 
 The examples below abbreviate paths, process IDs, and versions with angle
 brackets. Running `ghidra-manager` without a subcommand is equivalent to
-`ghidra-manager sync`.
+`ghidra-manager sync`. On macOS and Linux, use `./ghidra-manager` in place of
+`ghidra-manager` to run directly from a checkout.
 
 | Command | Options | Sample output |
 | --- | --- | --- |
@@ -72,6 +75,18 @@ For development:
 uv sync --locked --group dev
 uv run ghidra-manager help
 ```
+
+On macOS and Linux, the checkout wrapper finds the repository and performs the
+locked `uv run` invocation for you:
+
+```bash
+./ghidra-manager help
+./ghidra-manager sync --dry-run
+```
+
+It forwards every command argument and the CLI's exit code. The wrapper is a
+checkout convenience, not another manager implementation. Use
+`uv tool install .` for the normal cross-platform installation and on Windows.
 
 JDK discovery checks `JAVA_HOME` and `PATH` on every platform. macOS also uses
 `/usr/libexec/java_home` and Homebrew when available.
