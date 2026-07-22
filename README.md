@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Ghidra Manager logo" width="240">
+  <img src="https://raw.githubusercontent.com/alexbevi/ghidra-manager/main/docs/logo.png" alt="Ghidra Manager logo" width="240">
 </p>
 
 # Ghidra Manager
@@ -14,13 +14,15 @@ The `ghidra-manager` Python command is the only supported user-facing
 entrypoint on Windows, Linux, and macOS.
 
 For Codex workflows, this repository also includes the
-[`ghidra-manager` skill](skills/ghidra-manager/SKILL.md). Invoke
+[`ghidra-manager` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-manager/SKILL.md).
+Invoke
 `$ghidra-manager` to inspect managed state, choose reviewed plugins, launch and
 verify projects, connect the bridge, target exact programs inside a project,
 compare binaries, or work on the manager itself. The skill follows the same
 safety rules as the CLI: use `instances` as runtime truth, identify programs
 explicitly when more than one is open, and review comparison results before a
-write.
+write. The skill is maintained in the source repository and is not installed
+into Codex by the PyPI package.
 
 ## Command Summary
 
@@ -59,14 +61,20 @@ the detailed sections below.
 Install [`uv`](https://docs.astral.sh/uv/) and a 64-bit JDK 21. The CLI uses uv
 to provision Python 3.13, so a system Python installation is not required.
 
-From a checkout:
+Install the published CLI in an isolated tool environment:
 
 ```bash
-uv tool install .
+uv tool install ghidra-manager
 ghidra-manager help
 ```
 
-For development:
+Upgrade it independently of managed Ghidra installations and plugins:
+
+```bash
+uv tool upgrade ghidra-manager
+```
+
+For development from a checkout:
 
 ```bash
 uv sync --locked --group dev
@@ -156,7 +164,7 @@ ghidra-manager plugins list --json
 ```
 
 The bundled registry is
-[`src/ghidra_manager/plugin_registry.json`](src/ghidra_manager/plugin_registry.json),
+[`src/ghidra_manager/plugin_registry.json`](https://github.com/alexbevi/ghidra-manager/blob/main/src/ghidra_manager/plugin_registry.json),
 not a remote marketplace. Its initial reviewed catalog contains `mcp` and
 `ghidra-lx-loader`. Discovery is read-only and works before Ghidra is installed.
 Plugin versions are resolved from stable GitHub releases when a plugin is
@@ -348,7 +356,7 @@ ghidra-manager bridge --help
 
 ## Use With Codex
 
-The bundled [`ghidra-manager` skill](skills/ghidra-manager/SKILL.md) teaches
+The bundled [`ghidra-manager` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-manager/SKILL.md) teaches
 Codex the manager's command boundaries, plugin lifecycle, launch checks, and
 comparison safeguards. The repository directory is the source of truth; install
 or link `skills/ghidra-manager` as `$CODEX_HOME/skills/ghidra-manager` and start
