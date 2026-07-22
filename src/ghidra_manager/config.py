@@ -18,7 +18,8 @@ def default_manager_home(
 ) -> Path:
     """Return the platform-native location for large managed payloads."""
     platform = platform or sys.platform
-    environ = environ or os.environ
+    if environ is None:
+        environ = os.environ
     home = home or Path.home()
 
     override = environ.get("GHIDRA_MANAGER_HOME")
@@ -44,7 +45,8 @@ def default_config_file(
     home: Path | None = None,
 ) -> Path:
     platform = platform or sys.platform
-    environ = environ or os.environ
+    if environ is None:
+        environ = os.environ
     home = home or Path.home()
     if platform == "win32":
         root = Path(environ.get("APPDATA", home / "AppData" / "Roaming"))
@@ -90,7 +92,8 @@ class ManagerPaths:
         environ: Mapping[str, str] | None = None,
         user_home: Path | None = None,
     ) -> ManagerPaths:
-        environ = environ or os.environ
+        if environ is None:
+            environ = os.environ
         override = environ.get("GHIDRA_MANAGER_HOME")
         if override:
             return cls(Path(override).expanduser().resolve())

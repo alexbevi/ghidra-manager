@@ -19,7 +19,8 @@ class GitHubClient:
         environ: Mapping[str, str] | None = None,
         api_url: str = "https://api.github.com",
     ):
-        environ = environ or os.environ
+        if environ is None:
+            environ = os.environ
         self.token = environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN")
         self.api_url = api_url.rstrip("/")
 

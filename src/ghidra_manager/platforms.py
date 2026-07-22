@@ -22,7 +22,8 @@ def ghidra_settings_dir(
     home: Path | None = None,
 ) -> Path:
     platform = platform or sys.platform
-    environ = environ or os.environ
+    if environ is None:
+        environ = os.environ
     home = home or Path.home()
     directory = f"ghidra_{version}_{release_name}"
     if platform == "win32":
@@ -58,7 +59,8 @@ def find_java21(
     environ: Mapping[str, str] | None = None,
 ) -> Path:
     platform = platform or sys.platform
-    environ = environ or os.environ
+    if environ is None:
+        environ = os.environ
     candidates: list[Path] = []
     if environ.get("JAVA_HOME"):
         candidates.append(Path(environ["JAVA_HOME"]))

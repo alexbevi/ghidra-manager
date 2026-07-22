@@ -10,16 +10,18 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    env:
-      GHIDRA_MANAGER_HOME: ${{ runner.temp }}/ghidra-manager
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv sync --locked --group dev
-      - run: uv run ghidra-manager sync --dry-run
-      - run: uv run ghidra-manager sync
-      - run: uv run ghidra-manager sync
-      - run: uv run ghidra-manager status
-      - run: uv run ghidra-manager bridge --help
+      - name: Exercise managed installation
+        env:
+          GHIDRA_MANAGER_HOME: ${{ runner.temp }}/ghidra-manager
+        run: |
+          uv run ghidra-manager sync --dry-run
+          uv run ghidra-manager sync
+          uv run ghidra-manager sync
+          uv run ghidra-manager status
+          uv run ghidra-manager bridge --help
