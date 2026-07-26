@@ -221,6 +221,7 @@ def test_report_surfaces_representative_reviewed_findings() -> None:
 
 def test_report_exposes_assessment_and_evidence_readiness() -> None:
     profile, ledger, snapshot, evidence = inputs()
+    evidence["repository"]["dirty"] = True
     ledger["records"].append(
         {
             "id": "fn:3",
@@ -277,6 +278,7 @@ def test_report_exposes_assessment_and_evidence_readiness() -> None:
     assert "## Executive Summary" in markdown
     assert "## Assessment Readiness" in markdown
     assert "## Evidence Readiness" in markdown
+    assert "Repository worktree: dirty (fingerprinted)" in markdown
 
 
 def test_stale_evidence_does_not_count_as_current_traceability() -> None:

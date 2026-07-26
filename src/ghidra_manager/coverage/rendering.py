@@ -39,8 +39,8 @@ def _append_executive_summary(lines: list[str], report: dict[str, Any]) -> None:
         )
     else:
         lines.append(
-            "- Implementation coverage cannot yet be estimated because no "
-            "in-scope functions have been reviewed."
+            "- Implementation coverage cannot yet be estimated because no functions "
+            "or behavioral units have been reviewed in scope."
         )
     lines.extend(
         [
@@ -284,6 +284,8 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Snapshot: `{report['inputs']['snapshot_id']}`",
         f"- Evidence: `{report['inputs']['evidence_scan_id']}`",
         f"- Repository revision: `{report['inputs']['repository_revision']}`",
+        f"- Repository worktree: "
+        f"{'dirty (fingerprinted)' if report['inputs']['repository_dirty'] else 'clean'}",
         "",
     ]
     _append_executive_summary(lines, report)

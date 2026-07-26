@@ -306,6 +306,7 @@ def build_report(
             "evidence_scan_id": evidence["scan_id"],
             "repository_revision": evidence["repository"]["revision"],
             "repository_fingerprint": evidence["repository"]["content_fingerprint"],
+            "repository_dirty": bool(evidence["repository"].get("dirty")),
         },
         "inventory": {
             "functions": len(snapshot.get("functions", [])),
