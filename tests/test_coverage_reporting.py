@@ -150,6 +150,41 @@ def test_subsystem_dashboard_separates_reviewed_and_unreviewed_units() -> None:
     }
 
 
+def test_report_treats_player_scenarios_as_reviewed_coverage_units() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"].append(
+        {
+            "id": "scenario:new-game",
+            "kind": "behavioral_unit",
+            "unit_type": "scenario",
+            "subsystem": "game-progression",
+            "scope": {"state": "in_scope"},
+            "status": "complete",
+            "verification": {
+                "state": "runtime_verified",
+                "records": ["run:new-game"],
+            },
+            "critical_progression": True,
+            "player_impact": "The player can begin the game.",
+            "original": {"label": "Start a new game"},
+            "evidence": [],
+        }
+    )
+
+    report = build_report(profile, ledger, snapshot, evidence)
+
+    assert report["metrics"]["critical_scenarios"]["conservative_coverage"] == {
+        "numerator": 1,
+        "denominator": 1,
+        "ratio": 1.0,
+    }
+    assert report["metrics"]["critical_scenarios"]["verified"]["ratio"] == 1.0
+    assert report["critical_scenarios"][0]["label"] == "Start a new game"
+    markdown = markdown_report(report)
+    assert "## Critical Player Scenarios" in markdown
+    assert "The player can begin the game." in markdown
+
+
 def test_report_exposes_assessment_and_evidence_readiness() -> None:
     profile, ledger, snapshot, evidence = inputs()
     ledger["records"].append(

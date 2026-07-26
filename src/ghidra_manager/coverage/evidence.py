@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.coverage.adapters.scummvm import scenario_units
 from ghidra_manager.coverage.model import (
     EVIDENCE_SCHEMA,
     SCHEMA_VERSION,
@@ -190,6 +191,8 @@ def collect_evidence(
                 )
             )
     behavioral_units: list[dict[str, Any]] = []
+    if adapter_id == "scummvm":
+        behavioral_units.extend(scenario_units(profile))
     architecture = profile["adapter"].get("architecture")
     for path in _source_files(
         repository, scope, str(architecture) if architecture else None

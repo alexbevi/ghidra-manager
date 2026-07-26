@@ -575,6 +575,13 @@ priority but leaves the suggestion `unknown`. Seed never suggests `complete`,
 deterministic evidence, diagnostic, and reachability factors so review can
 begin with the strongest mappings.
 
+The ScummVM RIPPER adapter also seeds a small catalog of player-visible
+scenarios, including startup, new-game bootstrap, scripted transitions,
+puzzles, WAC, Cyber, combat, save/restore, and chapter progression. These are
+ordinary unreviewed behavioral records with `unit_type: "scenario"`; the
+adapter does not claim that they work. Reviewers provide their scope, status,
+player impact, known deviations, and verification records in `ledger.json`.
+
 Reports lead with assessment readiness and evidence quality before showing any
 coverage ratio. When no in-scope denominator has been reviewed, the Markdown
 report says that implementation coverage and gap analysis are unavailable
@@ -589,8 +596,9 @@ status, verification state, and instruction-weighted views. Behavioral coverage
 is the primary functional signal when reviewed units exist. Reports include a
 subsystem matrix with reviewed totals, status counts, and independently
 verified-unit counts; function-count and instruction-weighted metrics remain
-engineering detail. A stored snapshot supports scanning and report regeneration
-without a live Ghidra instance:
+engineering detail. A critical-player-scenario table shows scope, status,
+verification, and player impact separately. A stored snapshot supports scanning
+and report regeneration without a live Ghidra instance:
 
 ```bash
 ghidra-manager coverage scan \

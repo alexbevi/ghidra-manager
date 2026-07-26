@@ -252,6 +252,17 @@ def validate_ledger(value: dict[str, Any]) -> list[str]:
             errors.append(f"{identifier or index}: invalid reachability state")
         if raw.get("kind") not in {"function", "behavioral_unit"}:
             errors.append(f"{identifier or index}: invalid coverage record kind")
+        if raw.get("kind") == "behavioral_unit" and raw.get(
+            "unit_type", "registry"
+        ) not in {"registry", "scenario"}:
+            errors.append(f"{identifier or index}: invalid behavioral unit type")
+        if raw.get("player_impact") is not None and not isinstance(
+            raw.get("player_impact"), str
+        ):
+            errors.append(f"{identifier or index}: player_impact must be text")
+        for field in ("known_missing", "deviations"):
+            if field in raw and not isinstance(raw.get(field), list):
+                errors.append(f"{identifier or index}: {field} must be an array")
         if raw.get("status") == "not_applicable":
             if not isinstance(scope, dict) or scope.get("state") != "out_of_scope":
                 errors.append(f"{identifier or index}: not_applicable must be out_of_scope")

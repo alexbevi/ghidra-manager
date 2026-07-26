@@ -211,9 +211,12 @@ def _function_candidate(
 def _behavioral_candidate(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     identifier = str(unit["id"])
     subsystem = str(unit.get("subsystem", "unassigned"))
+    unit_type = str(unit.get("unit_type", "registry"))
+    critical_progression = bool(unit.get("critical_progression"))
     record: dict[str, Any] = {
         "id": identifier,
         "kind": "behavioral_unit",
+        "unit_type": unit_type,
         "subsystem": subsystem,
         "scope": {
             "state": "unreviewed",
@@ -225,8 +228,10 @@ def _behavioral_candidate(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[st
         "evidence": [],
         "reachability": "data_driven",
         "priority": 0,
-        "critical_progression": False,
+        "critical_progression": critical_progression,
+        "player_impact": unit.get("player_impact"),
         "known_missing": [],
+        "deviations": [],
         "notes": None,
         "original": {
             "label": unit.get("label"),
@@ -241,8 +246,12 @@ def _behavioral_candidate(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[st
         "suggested_scope": "in_scope",
         "suggested_status": "unknown",
         "confidence": "medium",
-        "priority": 15,
-        "reasons": ["explicit ScummVM behavioral registry entry"],
+        "priority": 30 if critical_progression else 20 if unit_type == "scenario" else 15,
+        "reasons": [
+            "explicit player-visible scenario"
+            if unit_type == "scenario"
+            else "explicit ScummVM behavioral registry entry"
+        ],
         "evidence_summary": {},
         "implementation_paths": [],
         "diagnostic_paths": [],

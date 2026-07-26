@@ -187,6 +187,28 @@ def build_report(
         item.get("verification", {}).get("state") != "unverified"
         for item in in_scope_behavioral
     )
+    scenario_records = [
+        item
+        for item in behavioral_records
+        if item.get("unit_type", "registry") == "scenario"
+    ]
+    in_scope_scenarios = [
+        item
+        for item in scenario_records
+        if item.get("scope", {}).get("state") == "in_scope"
+    ]
+    scenario_statuses = Counter(
+        str(item.get("status", "unknown")) for item in in_scope_scenarios
+    )
+    reviewed_scenarios = [
+        item
+        for item in scenario_records
+        if item.get("scope", {}).get("state") != "unreviewed"
+    ]
+    verified_scenarios = sum(
+        item.get("verification", {}).get("state") != "unverified"
+        for item in in_scope_scenarios
+    )
     reviewed_records = len(in_scope) + len(out_of_scope)
     candidates = [
         item
@@ -305,6 +327,22 @@ def build_report(
                 ),
                 "status_distribution": dict(sorted(behavioral_statuses.items())),
             },
+            "critical_scenarios": {
+                "review_readiness": _ratio(
+                    len(reviewed_scenarios),
+                    len(scenario_records),
+                ),
+                "conservative_coverage": _ratio(
+                    sum(scenario_statuses[status] for status in IMPLEMENTED),
+                    len(in_scope_scenarios),
+                ),
+                "coverage_ceiling": _ratio(
+                    sum(scenario_statuses[status] for status in CEILING),
+                    len(in_scope_scenarios),
+                ),
+                "verified": _ratio(verified_scenarios, len(in_scope_scenarios)),
+                "status_distribution": dict(sorted(scenario_statuses.items())),
+            },
             "status_distribution": dict(sorted(status_counts.items())),
             "verification_distribution": dict(sorted(verification.items())),
             "instruction_weighted": {
@@ -320,6 +358,30 @@ def build_report(
             },
         },
         "subsystem_dashboard": _behavioral_dashboard(records),
+        "critical_scenarios": [
+            {
+                "id": item["id"],
+                "label": item.get("original", {}).get("label")
+                or item.get("label")
+                or item["id"],
+                "scope": item.get("scope", {}).get("state", "unreviewed"),
+                "status": item.get("status", "unknown"),
+                "verification": item.get("verification", {}).get(
+                    "state", "unverified"
+                ),
+                "critical_progression": bool(item.get("critical_progression")),
+                "player_impact": item.get("player_impact"),
+                "known_missing": item.get("known_missing", []),
+                "deviations": item.get("deviations", []),
+            }
+            for item in sorted(
+                scenario_records,
+                key=lambda record: (
+                    -int(bool(record.get("critical_progression"))),
+                    str(record.get("id")),
+                ),
+            )
+        ],
         "gaps": [
             {
                 "id": item["id"],
@@ -368,6 +430,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         "",
     ]
     behavioral_metrics = metrics["behavioral_coverage"]
+    scenario_metrics = metrics["critical_scenarios"]
     if behavioral_metrics["conservative_coverage"]["denominator"]:
         value = behavioral_metrics["conservative_coverage"]
         ceiling = behavioral_metrics["coverage_ceiling"]
@@ -406,6 +469,9 @@ def markdown_report(report: dict[str, Any]) -> str:
             f"- Behavioral-unit review: "
             f"{assessment['behavioral_units']['reviewed']} / "
             f"{assessment['behavioral_units']['total']} reviewed",
+            f"- Critical-scenario review: "
+            f"{scenario_metrics['review_readiness']['numerator']} / "
+            f"{scenario_metrics['review_readiness']['denominator']} reviewed",
             "",
             "Completion, evidence linkage, and verification are separate claims.",
             "",
@@ -473,6 +539,36 @@ def markdown_report(report: dict[str, Any]) -> str:
         )
     else:
         lines.append("No behavioral units are present in the reviewed ledger.")
+    lines.extend(
+        [
+            "",
+            "## Critical Player Scenarios",
+            "",
+        ]
+    )
+    scenarios = report["critical_scenarios"]
+    if scenarios:
+        lines.extend(
+            [
+                "| Scenario | Scope review | Status | Verification | Player impact |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for scenario in scenarios:
+            impact = str(scenario["player_impact"] or "").replace("|", "\\|")
+            lines.append(
+                f"| {scenario['label']} | {scenario['scope']} | "
+                f"{scenario['status']} | {scenario['verification']} | {impact} |"
+            )
+        lines.extend(
+            [
+                "",
+                "Scenario coverage is derived only from reviewer-authored scope, status, "
+                "and verification records.",
+            ]
+        )
+    else:
+        lines.append("No critical player scenarios are defined.")
     evidence = report["evidence_summary"]
     fact_kinds = ", ".join(
         f"{key}={value}"

@@ -165,9 +165,13 @@ def test_offline_scan_apply_and_report_preserve_ledger(tmp_path: Path) -> None:
         paths.evidence
         / f"{str(profile['active']['evidence']).removeprefix('sha256:')}.json"
     )
-    assert len(evidence["behavioral_units"]) == 3
+    assert len(evidence["behavioral_units"]) == 13
     assert any(
         unit["id"] == "scummvm-ripper:scene-action:12"
+        for unit in evidence["behavioral_units"]
+    )
+    assert any(
+        unit["id"] == "scummvm-ripper:scenario:save-restore"
         for unit in evidence["behavioral_units"]
     )
     assert any(fact["kind"] == "commit_anchor" for fact in evidence["facts"])
@@ -256,13 +260,13 @@ def test_seed_plan_populates_unreviewed_records_and_review_queue(tmp_path: Path)
     assert paths.ledger.read_bytes() == ledger_before
     plan = load_json(seed_plan)
     assert plan["plan_type"] == "ledger_seed"
-    assert plan["summary"]["added_records"] == 4
+    assert plan["summary"]["added_records"] == 14
     assert plan["policy"]["preserves_reviewed_records"] is True
 
     service.apply(seed_plan)
 
     ledger = load_json(paths.ledger)
-    assert len(ledger["records"]) == 4
+    assert len(ledger["records"]) == 14
     assert all(record["status"] == "unknown" for record in ledger["records"])
     assert all(
         record["scope"]["state"] == "unreviewed" for record in ledger["records"]
@@ -272,7 +276,7 @@ def test_seed_plan_populates_unreviewed_records_and_review_queue(tmp_path: Path)
     )
     assert function["evidence"]
     queue = load_json(paths.review_queue)
-    assert len(queue["candidates"]) == 4
+    assert len(queue["candidates"]) == 14
     assert all(
         candidate["suggested_status"] in {"unknown", "partial"}
         for candidate in queue["candidates"]

@@ -156,6 +156,41 @@ def test_seed_is_deterministic() -> None:
     assert first == second
 
 
+def test_behavioral_scenario_fields_survive_seeding() -> None:
+    profile, ledger, snapshot, evidence = seed_inputs()
+    evidence["behavioral_units"].append(
+        {
+            "id": "scummvm-ripper:scenario:new-game",
+            "kind": "behavioral_unit",
+            "unit_type": "scenario",
+            "subsystem": "game-progression",
+            "label": "Start a new game",
+            "player_impact": "The player can enter the opening scene.",
+            "critical_progression": True,
+            "provider": "scummvm.ripper-scenarios",
+            "source": {"kind": "adapter_catalog", "version": 1},
+        }
+    )
+
+    seeded, queue, _summary = build_seed(profile, ledger, snapshot, evidence)
+
+    scenario = next(
+        item
+        for item in seeded["records"]
+        if item["id"] == "scummvm-ripper:scenario:new-game"
+    )
+    assert scenario["unit_type"] == "scenario"
+    assert scenario["critical_progression"] is True
+    assert scenario["player_impact"] == "The player can enter the opening scene."
+    candidate = next(
+        item
+        for item in queue["candidates"]
+        if item["record_id"] == "scummvm-ripper:scenario:new-game"
+    )
+    assert candidate["priority"] == 30
+    assert candidate["reasons"] == ["explicit player-visible scenario"]
+
+
 def test_same_file_diagnostic_does_not_imply_partial() -> None:
     profile, ledger, snapshot, evidence = seed_inputs()
     unlinked = deepcopy(evidence)
