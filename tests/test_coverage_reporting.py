@@ -185,6 +185,30 @@ def test_report_treats_player_scenarios_as_reviewed_coverage_units() -> None:
     assert "The player can begin the game." in markdown
 
 
+def test_report_surfaces_representative_reviewed_findings() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    partial = ledger["records"][1]
+    partial["subsystem"] = "puzzles"
+    partial["player_impact"] = "The puzzle can be entered but not completed."
+    partial["known_missing"] = ["completion branch"]
+    partial["deviations"] = ["temporary placeholder art"]
+    partial["original"] = {"name": "RunPuzzle"}
+    partial["critical_progression"] = True
+
+    report = build_report(profile, ledger, snapshot, evidence)
+
+    finding = report["representative_findings"]["partial"][0]
+    assert finding["label"] == "RunPuzzle"
+    assert finding["known_missing"] == ["completion branch"]
+    gap = next(item for item in report["gaps"] if item["id"] == "fn:2")
+    assert gap["subsystem"] == "puzzles"
+    assert gap["player_impact"] == "The puzzle can be entered but not completed."
+    markdown = markdown_report(report)
+    assert "## Representative Reviewed Findings" in markdown
+    assert "### Partial implementations" in markdown
+    assert "Known missing: completion branch" in markdown
+
+
 def test_report_exposes_assessment_and_evidence_readiness() -> None:
     profile, ledger, snapshot, evidence = inputs()
     ledger["records"].append(

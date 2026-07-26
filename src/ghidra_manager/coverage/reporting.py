@@ -78,6 +78,36 @@ def _behavioral_dashboard(
     }
 
 
+def _record_label(record: dict[str, Any]) -> str:
+    original = record.get("original", {})
+    if isinstance(original, dict):
+        for field in ("label", "name"):
+            value = original.get(field)
+            if isinstance(value, str) and value:
+                return value
+    label = record.get("label")
+    return str(label) if isinstance(label, str) and label else str(record["id"])
+
+
+def _finding(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "label": _record_label(record),
+        "kind": record.get("kind"),
+        "subsystem": record.get("subsystem", "unassigned"),
+        "status": record.get("status"),
+        "verification": record.get("verification", {}).get("state", "unverified"),
+        "critical_progression": bool(record.get("critical_progression")),
+        "priority": int(record.get("priority", 0)),
+        "player_impact": record.get("player_impact"),
+        "known_missing": record.get("known_missing", []),
+        "deviations": record.get("deviations", []),
+        "notes": record.get("notes"),
+        "implementation": record.get("implementation", {}),
+        "evidence": sorted(record.get("evidence", [])),
+    }
+
+
 def build_report(
     profile: dict[str, Any],
     ledger: dict[str, Any],
@@ -142,6 +172,16 @@ def build_report(
             -int(bool(item.get("critical_progression"))),
             -int(bool(diagnostic_ids.intersection(item.get("evidence", [])))),
             -reachability_rank.get(str(item.get("reachability", "unknown")), 1),
+            str(item.get("id")),
+        )
+    )
+    findings = [
+        item for item in in_scope if item.get("status") in IMPLEMENTED | {"partial", "missing"}
+    ]
+    findings.sort(
+        key=lambda item: (
+            -int(bool(item.get("critical_progression"))),
+            -int(item.get("priority", 0)),
             str(item.get("id")),
         )
     )
@@ -358,6 +398,14 @@ def build_report(
             },
         },
         "subsystem_dashboard": _behavioral_dashboard(records),
+        "representative_findings": {
+            status: [
+                _finding(item)
+                for item in findings
+                if item.get("status") == status
+            ][:5]
+            for status in ("complete", "equivalent", "partial", "missing")
+        },
         "critical_scenarios": [
             {
                 "id": item["id"],
@@ -390,7 +438,11 @@ def build_report(
                 "critical_progression": bool(item.get("critical_progression")),
                 "diagnostic": bool(diagnostic_ids.intersection(item.get("evidence", []))),
                 "reachability": item.get("reachability", "unknown"),
+                "label": _record_label(item),
+                "subsystem": item.get("subsystem", "unassigned"),
+                "player_impact": item.get("player_impact"),
                 "known_missing": item.get("known_missing", []),
+                "deviations": item.get("deviations", []),
             }
             for item in gaps
         ],
@@ -569,6 +621,52 @@ def markdown_report(report: dict[str, Any]) -> str:
         )
     else:
         lines.append("No critical player scenarios are defined.")
+    lines.extend(
+        [
+            "",
+            "## Representative Reviewed Findings",
+            "",
+        ]
+    )
+    finding_labels = {
+        "complete": "Completed behavior",
+        "equivalent": "Equivalent replacements",
+        "partial": "Partial implementations",
+        "missing": "Missing behavior",
+    }
+    any_findings = False
+    for status, heading in finding_labels.items():
+        findings = report["representative_findings"][status]
+        if not findings:
+            continue
+        any_findings = True
+        lines.extend([f"### {heading}", ""])
+        for finding in findings:
+            details = [
+                f"subsystem={finding['subsystem']}",
+                f"verification={finding['verification']}",
+            ]
+            if finding["critical_progression"]:
+                details.append("critical progression")
+            lines.append(
+                f"- **{finding['label']}** (`{finding['id']}`): "
+                f"{'; '.join(details)}"
+            )
+            if finding["player_impact"]:
+                lines.append(f"  - Player impact: {finding['player_impact']}")
+            if finding["known_missing"]:
+                lines.append(
+                    f"  - Known missing: {', '.join(map(str, finding['known_missing']))}"
+                )
+            if finding["deviations"]:
+                lines.append(
+                    f"  - Deviations: {', '.join(map(str, finding['deviations']))}"
+                )
+        lines.append("")
+    if not any_findings:
+        lines.append(
+            "No reviewed complete, equivalent, partial, or missing findings are available."
+        )
     evidence = report["evidence_summary"]
     fact_kinds = ", ".join(
         f"{key}={value}"
@@ -644,7 +742,8 @@ def markdown_report(report: dict[str, Any]) -> str:
             )
     else:
         lines.extend(
-            f"- `{gap['id']}` — {gap['status']}; reachability={gap['reachability']}; "
+            f"- **{gap['label']}** (`{gap['id']}`) — {gap['status']}; "
+            f"subsystem={gap['subsystem']}; reachability={gap['reachability']}; "
             f"priority={gap['priority']}"
             for gap in report["gaps"]
         )
