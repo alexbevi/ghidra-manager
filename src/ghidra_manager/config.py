@@ -145,3 +145,7 @@ class ManagerPaths:
     @property
     def gradle_cache(self) -> Path:
         return self.home / "gradle-cache"
+
+    @property
+    def coverage(self) -> Path:
+        return self.home / "coverage"
