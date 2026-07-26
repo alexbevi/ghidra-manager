@@ -585,8 +585,12 @@ completion claims.
 
 The engineering section distinguishes function traceability, conservative
 reviewed coverage, the partial-inclusive coverage ceiling, behavioral-unit
-status, verification state, and instruction-weighted views. A stored snapshot
-supports scanning and report regeneration without a live Ghidra instance:
+status, verification state, and instruction-weighted views. Behavioral coverage
+is the primary functional signal when reviewed units exist. Reports include a
+subsystem matrix with reviewed totals, status counts, and independently
+verified-unit counts; function-count and instruction-weighted metrics remain
+engineering detail. A stored snapshot supports scanning and report regeneration
+without a live Ghidra instance:
 
 ```bash
 ghidra-manager coverage scan \

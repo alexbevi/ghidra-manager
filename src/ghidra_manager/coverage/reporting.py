@@ -15,6 +15,13 @@ from ghidra_manager.coverage.model import (
 IMPLEMENTED = {"complete", "equivalent"}
 CEILING = IMPLEMENTED | {"partial"}
 GAPS = {"missing", "partial", "unknown"}
+STATUS_ORDER = (
+    "complete",
+    "equivalent",
+    "partial",
+    "missing",
+    "unknown",
+)
 
 
 def _ratio(numerator: int, denominator: int) -> dict[str, int | float | None]:
@@ -22,6 +29,52 @@ def _ratio(numerator: int, denominator: int) -> dict[str, int | float | None]:
         "numerator": numerator,
         "denominator": denominator,
         "ratio": numerator / denominator if denominator else None,
+    }
+
+
+def _behavioral_dashboard(
+    records: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    dashboard: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if record.get("kind") != "behavioral_unit":
+            continue
+        subsystem = str(record.get("subsystem", "unspecified"))
+        row = dashboard.setdefault(
+            subsystem,
+            {
+                "total": 0,
+                "reviewed": 0,
+                "unreviewed": 0,
+                "in_scope": 0,
+                "out_of_scope": 0,
+                "statuses": Counter(),
+                "verification": Counter(),
+            },
+        )
+        row["total"] += 1
+        scope = record.get("scope", {}).get("state")
+        if scope == "unreviewed":
+            row["unreviewed"] += 1
+            continue
+        row["reviewed"] += 1
+        if scope == "out_of_scope":
+            row["out_of_scope"] += 1
+            continue
+        if scope == "in_scope":
+            row["in_scope"] += 1
+            row["statuses"][str(record.get("status", "unknown"))] += 1
+            verification = str(
+                record.get("verification", {}).get("state", "unverified")
+            )
+            row["verification"][verification] += 1
+    return {
+        subsystem: {
+            **{key: value for key, value in row.items() if key not in {"statuses", "verification"}},
+            "statuses": dict(sorted(row["statuses"].items())),
+            "verification": dict(sorted(row["verification"].items())),
+        }
+        for subsystem, row in sorted(dashboard.items())
     }
 
 
@@ -124,6 +177,16 @@ def build_report(
     behavioral_records = [
         item for item in records if item.get("kind") == "behavioral_unit"
     ]
+    in_scope_behavioral = [
+        item for item in in_scope if item.get("kind") == "behavioral_unit"
+    ]
+    behavioral_statuses = Counter(
+        str(item.get("status", "unknown")) for item in in_scope_behavioral
+    )
+    verified_behavioral = sum(
+        item.get("verification", {}).get("state") != "unverified"
+        for item in in_scope_behavioral
+    )
     reviewed_records = len(in_scope) + len(out_of_scope)
     candidates = [
         item
@@ -227,6 +290,21 @@ def build_report(
                 sum(status_counts[status] for status in CEILING),
                 len(in_scope_functions),
             ),
+            "behavioral_coverage": {
+                "conservative_coverage": _ratio(
+                    sum(behavioral_statuses[status] for status in IMPLEMENTED),
+                    len(in_scope_behavioral),
+                ),
+                "coverage_ceiling": _ratio(
+                    sum(behavioral_statuses[status] for status in CEILING),
+                    len(in_scope_behavioral),
+                ),
+                "verified": _ratio(
+                    verified_behavioral,
+                    len(in_scope_behavioral),
+                ),
+                "status_distribution": dict(sorted(behavioral_statuses.items())),
+            },
             "status_distribution": dict(sorted(status_counts.items())),
             "verification_distribution": dict(sorted(verification.items())),
             "instruction_weighted": {
@@ -241,6 +319,7 @@ def build_report(
                 for key, value in sorted(subsystem_counts.items())
             },
         },
+        "subsystem_dashboard": _behavioral_dashboard(records),
         "gaps": [
             {
                 "id": item["id"],
@@ -288,12 +367,30 @@ def markdown_report(report: dict[str, Any]) -> str:
         "## Executive Summary",
         "",
     ]
-    if metrics["conservative_coverage"]["denominator"]:
+    behavioral_metrics = metrics["behavioral_coverage"]
+    if behavioral_metrics["conservative_coverage"]["denominator"]:
+        value = behavioral_metrics["conservative_coverage"]
+        ceiling = behavioral_metrics["coverage_ceiling"]
+        verified = behavioral_metrics["verified"]
         lines.extend(
             [
-                f"- Conservative implementation coverage: "
+                f"- Conservative functional coverage: "
+                f"{value['numerator']} / {value['denominator']} "
+                f"({value['ratio'] * 100:.2f}%)",
+                f"- Functional coverage ceiling: "
+                f"{ceiling['numerator']} / {ceiling['denominator']} "
+                f"({ceiling['ratio'] * 100:.2f}%)",
+                f"- Verified behavioral units: "
+                f"{verified['numerator']} / {verified['denominator']} "
+                f"({verified['ratio'] * 100:.2f}%)",
+            ]
+        )
+    elif metrics["conservative_coverage"]["denominator"]:
+        lines.extend(
+            [
+                f"- Conservative function coverage: "
                 f"{metric('conservative_coverage')}",
-                f"- Coverage ceiling: {metric('coverage_ceiling')}",
+                f"- Function coverage ceiling: {metric('coverage_ceiling')}",
             ]
         )
     else:
@@ -336,6 +433,46 @@ def markdown_report(report: dict[str, Any]) -> str:
         )
     else:
         lines.append("- Advisory review queue: unavailable")
+    lines.extend(
+        [
+            "",
+            "## Behavioral Coverage by Subsystem",
+            "",
+        ]
+    )
+    dashboard = report["subsystem_dashboard"]
+    if dashboard:
+        lines.extend(
+            [
+                "| Subsystem | Reviewed | Complete | Equivalent | Partial | "
+                "Missing | Unknown | Verified |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for subsystem, row in dashboard.items():
+            statuses = row["statuses"]
+            verified = sum(
+                count
+                for state, count in row["verification"].items()
+                if state != "unverified"
+            )
+            lines.append(
+                f"| {subsystem} | {row['reviewed']} / {row['total']} | "
+                f"{statuses.get('complete', 0)} | "
+                f"{statuses.get('equivalent', 0)} | "
+                f"{statuses.get('partial', 0)} | "
+                f"{statuses.get('missing', 0)} | "
+                f"{statuses.get('unknown', 0)} | {verified} |"
+            )
+        lines.extend(
+            [
+                "",
+                "Status counts include reviewed in-scope behavioral units. "
+                "Reviewed totals also include explicit out-of-scope decisions.",
+            ]
+        )
+    else:
+        lines.append("No behavioral units are present in the reviewed ledger.")
     evidence = report["evidence_summary"]
     fact_kinds = ", ".join(
         f"{key}={value}"

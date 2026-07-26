@@ -91,11 +91,63 @@ def test_report_separates_traceability_coverage_and_behavioral_units() -> None:
     assert report["metrics"]["coverage_ceiling"]["ratio"] == 1.0
     assert report["metrics"]["instruction_weighted"]["conservative_coverage"]["ratio"] == 0.25
     assert report["metrics"]["behavioral_units_by_subsystem"]["scripts"]["missing"] == 1
+    assert report["metrics"]["behavioral_coverage"]["conservative_coverage"] == {
+        "numerator": 0,
+        "denominator": 1,
+        "ratio": 0.0,
+    }
+    assert report["subsystem_dashboard"]["scripts"]["statuses"]["missing"] == 1
     assert report["gaps"][0]["id"] == "unit:1"
     markdown = markdown_report(report)
     assert "upper bound" in markdown
     assert "Instruction-weighted views measure code size" in markdown
     assert "Verification Distribution" in markdown
+    assert "## Behavioral Coverage by Subsystem" in markdown
+    assert "| scripts | 1 / 1 | 0 | 0 | 0 | 1 | 0 | 0 |" in markdown
+
+
+def test_subsystem_dashboard_separates_reviewed_and_unreviewed_units() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"].extend(
+        [
+            {
+                "id": "unit:2",
+                "kind": "behavioral_unit",
+                "subsystem": "scripts",
+                "scope": {"state": "unreviewed"},
+                "status": "unknown",
+                "verification": {"state": "unverified"},
+                "evidence": [],
+            },
+            {
+                "id": "unit:3",
+                "kind": "behavioral_unit",
+                "subsystem": "puzzles",
+                "scope": {"state": "in_scope"},
+                "status": "equivalent",
+                "verification": {
+                    "state": "runtime_verified",
+                    "records": ["run:puzzle"],
+                },
+                "evidence": [],
+            },
+        ]
+    )
+
+    report = build_report(profile, ledger, snapshot, evidence)
+
+    scripts = report["subsystem_dashboard"]["scripts"]
+    assert scripts["reviewed"] == 1
+    assert scripts["unreviewed"] == 1
+    assert scripts["total"] == 2
+    assert report["subsystem_dashboard"]["puzzles"]["verification"] == {
+        "runtime_verified": 1
+    }
+    assert report["metrics"]["behavioral_coverage"]["conservative_coverage"] == {
+        "numerator": 1,
+        "denominator": 2,
+        "ratio": 0.5,
+    }
 
 
 def test_report_exposes_assessment_and_evidence_readiness() -> None:
