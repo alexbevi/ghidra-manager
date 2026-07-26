@@ -8,7 +8,12 @@ from ghidra_manager.coverage.model import (
     SCHEMA_VERSION,
     SNAPSHOT_SCHEMA,
 )
-from ghidra_manager.coverage.reporting import build_diff, build_report, markdown_report
+from ghidra_manager.coverage.reporting import (
+    build_diff,
+    build_report,
+    markdown_diff,
+    markdown_report,
+)
 
 
 def inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -302,8 +307,60 @@ def test_diff_distinguishes_resolved_reopened_and_evidence_only_changes() -> Non
     head_ledger["records"][2]["evidence"] = ["diagnostic:1", "evidence:2"]
     head = build_report(profile, head_ledger, snapshot, evidence)
 
-    difference = build_diff(base, head)["changes"]
+    report_diff = build_diff(base, head)
+    difference = report_diff["changes"]
 
     assert difference["reopened"] == ["fn:1"]
     assert difference["resolved"] == ["fn:2"]
     assert difference["evidence_only"] == ["unit:1"]
+    assert report_diff["player_facing"]["newly_covered"][0]["id"] == "fn:2"
+    assert report_diff["player_facing"]["regressions"][0]["id"] == "fn:1"
+    assert "## Player-Visible Changes" in markdown_diff(report_diff)
+
+
+def test_diff_does_not_treat_new_unknown_record_as_a_gap() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    base = build_report(profile, ledger, snapshot, evidence)
+    head_ledger = deepcopy(ledger)
+    head_ledger["records"].append(
+        {
+            "id": "unit:new",
+            "kind": "behavioral_unit",
+            "subsystem": "puzzles",
+            "scope": {"state": "unreviewed"},
+            "status": "unknown",
+            "verification": {"state": "unverified"},
+            "evidence": [],
+        }
+    )
+    head = build_report(profile, head_ledger, snapshot, evidence)
+
+    difference = build_diff(base, head)
+
+    assert difference["changes"]["added"] == ["unit:new"]
+    assert difference["changes"]["added_gaps"] == []
+    assert difference["player_facing"]["new_gaps"] == []
+
+
+def test_diff_reports_verification_upgrades_and_critical_changes() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"][2]["critical_progression"] = True
+    ledger["records"][2]["player_impact"] = "Blocks a required scene."
+    base = build_report(profile, ledger, snapshot, evidence)
+    head_ledger = deepcopy(ledger)
+    head_ledger["records"][2]["verification"] = {
+        "state": "runtime_verified",
+        "records": ["run:scene"],
+    }
+    head = build_report(profile, head_ledger, snapshot, evidence)
+
+    difference = build_diff(base, head)
+
+    assert difference["changes"]["verification_upgraded"] == ["unit:1"]
+    assert difference["player_facing"]["verification_upgrades"][0]["player_impact"] == (
+        "Blocks a required scene."
+    )
+    assert difference["player_facing"]["critical_changes"][0]["id"] == "unit:1"
+    markdown = markdown_diff(difference)
+    assert "## Critical Progression Changes" in markdown
+    assert "Blocks a required scene." in markdown

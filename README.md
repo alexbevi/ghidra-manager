@@ -616,6 +616,13 @@ ghidra-manager coverage diff base.json head.json \
   --markdown coverage-diff.md
 ```
 
+Diffs retain exact record-level added, removed, resolved, reopened,
+reclassified, verification, and evidence-only changes. Their Markdown begins
+with player-visible newly covered behavior, regressions, reviewed new gaps,
+verification upgrades or downgrades, and critical-progression changes. Merely
+discovering a new unreviewed source unit records it as added; it is not labeled
+as a new gap.
+
 The initial ScummVM adapter recognizes RIPPER function/address anchors, script
 opcodes, scene actions, architecture references, and unsupported diagnostics.
 Those observations seed evidence only. `complete`, `partial`, `equivalent`,

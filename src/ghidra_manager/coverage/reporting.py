@@ -449,10 +449,17 @@ def build_report(
         "classifications": [
             {
                 "id": item["id"],
+                "label": _record_label(item),
                 "kind": item.get("kind"),
+                "unit_type": item.get("unit_type"),
+                "subsystem": item.get("subsystem", "unassigned"),
                 "scope": item.get("scope", {}).get("state"),
                 "status": item.get("status"),
                 "verification": item.get("verification", {}).get("state"),
+                "critical_progression": bool(item.get("critical_progression")),
+                "player_impact": item.get("player_impact"),
+                "known_missing": item.get("known_missing", []),
+                "deviations": item.get("deviations", []),
                 "evidence": sorted(item.get("evidence", [])),
             }
             for item in sorted(records, key=lambda record: str(record.get("id")))
@@ -759,7 +766,16 @@ def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
     reopened: list[str] = []
     reclassified: list[str] = []
     verification_changed: list[str] = []
+    verification_upgraded: list[str] = []
+    verification_downgraded: list[str] = []
     evidence_only: list[str] = []
+    verification_rank = {
+        "unverified": 0,
+        "static_verified": 1,
+        "test_verified": 2,
+        "runtime_verified": 3,
+        "retail_parity_tested": 4,
+    }
     for identifier in sorted(base_records.keys() & head_records.keys()):
         before = base_records[identifier]
         after = head_records[identifier]
@@ -773,6 +789,12 @@ def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
             reclassified.append(identifier)
         if before.get("verification") != after.get("verification"):
             verification_changed.append(identifier)
+            before_rank = verification_rank.get(str(before.get("verification")), 0)
+            after_rank = verification_rank.get(str(after.get("verification")), 0)
+            if after_rank > before_rank:
+                verification_upgraded.append(identifier)
+            elif after_rank < before_rank:
+                verification_downgraded.append(identifier)
         if (
             before.get("evidence") != after.get("evidence")
             and before_status == after_status
@@ -780,6 +802,34 @@ def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
             and before.get("verification") == after.get("verification")
         ):
             evidence_only.append(identifier)
+
+    def details(
+        identifiers: list[str],
+        records: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": identifier,
+                "label": records[identifier].get("label", identifier),
+                "kind": records[identifier].get("kind"),
+                "unit_type": records[identifier].get("unit_type"),
+                "subsystem": records[identifier].get("subsystem", "unassigned"),
+                "status": records[identifier].get("status"),
+                "verification": records[identifier].get("verification"),
+                "critical_progression": bool(
+                    records[identifier].get("critical_progression")
+                ),
+                "player_impact": records[identifier].get("player_impact"),
+            }
+            for identifier in identifiers
+        ]
+
+    added_gaps = [
+        identifier
+        for identifier in added
+        if head_records[identifier].get("scope") == "in_scope"
+        and head_records[identifier].get("status") in {"missing", "partial"}
+    ]
     result: dict[str, Any] = {
         "schema": DIFF_SCHEMA,
         "version": SCHEMA_VERSION,
@@ -789,17 +839,44 @@ def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
         "head_revision": head["inputs"]["repository_revision"],
         "changes": {
             "added": added,
-            "added_gaps": [
-                identifier
-                for identifier in added
-                if head_records[identifier].get("status") in GAPS
-            ],
+            "added_gaps": added_gaps,
             "removed": removed,
             "resolved": resolved,
             "reopened": reopened,
             "reclassified": reclassified,
             "verification_changed": verification_changed,
+            "verification_upgraded": verification_upgraded,
+            "verification_downgraded": verification_downgraded,
             "evidence_only": evidence_only,
+        },
+        "player_facing": {
+            "newly_covered": details(resolved, head_records),
+            "regressions": details(reopened, head_records),
+            "new_gaps": details(added_gaps, head_records),
+            "verification_upgrades": details(verification_upgraded, head_records),
+            "verification_downgrades": details(
+                verification_downgraded, head_records
+            ),
+            "critical_changes": details(
+                [
+                    identifier
+                    for identifier in sorted(
+                        set(added)
+                        | set(removed)
+                        | set(resolved)
+                        | set(reopened)
+                        | set(reclassified)
+                        | set(verification_changed)
+                    )
+                    if (
+                        head_records.get(identifier, base_records.get(identifier, {}))
+                    ).get("critical_progression")
+                ],
+                {
+                    **base_records,
+                    **head_records,
+                },
+            ),
         },
     }
     return with_content_id(result, "diff_id")
@@ -818,7 +895,50 @@ def markdown_diff(value: dict[str, Any]) -> str:
         f"- Reopened gaps: {len(changes['reopened'])}",
         f"- Reclassified gaps: {len(changes['reclassified'])}",
         f"- Verification changes: {len(changes['verification_changed'])}",
+        f"- Verification upgrades: {len(changes['verification_upgraded'])}",
+        f"- Verification downgrades: {len(changes['verification_downgraded'])}",
         f"- Evidence-only changes: {len(changes['evidence_only'])}",
         "",
     ]
+    player_facing = value["player_facing"]
+    lines.extend(["## Player-Visible Changes", ""])
+    sections = (
+        ("newly_covered", "Newly covered behavior"),
+        ("regressions", "Regressions or reopened gaps"),
+        ("new_gaps", "New reviewed gaps"),
+        ("verification_upgrades", "Verification upgrades"),
+        ("verification_downgrades", "Verification downgrades"),
+    )
+    any_changes = False
+    for key, heading in sections:
+        items = player_facing[key]
+        if not items:
+            continue
+        any_changes = True
+        lines.extend([f"### {heading}", ""])
+        for item in items:
+            critical = "; critical progression" if item["critical_progression"] else ""
+            impact = f"; {item['player_impact']}" if item["player_impact"] else ""
+            lines.append(
+                f"- **{item['label']}** (`{item['id']}`): "
+                f"{item['status']}; verification={item['verification']}"
+                f"{critical}{impact}"
+            )
+        lines.append("")
+    if not any_changes:
+        lines.append("No reviewed player-visible coverage changes.")
+        lines.append("")
+    if player_facing["critical_changes"]:
+        lines.extend(
+            [
+                "## Critical Progression Changes",
+                "",
+                *[
+                    f"- **{item['label']}** (`{item['id']}`): "
+                    f"{item['status']}; verification={item['verification']}"
+                    for item in player_facing["critical_changes"]
+                ],
+                "",
+            ]
+        )
     return "\n".join(lines)
