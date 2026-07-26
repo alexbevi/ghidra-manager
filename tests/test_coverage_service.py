@@ -239,3 +239,95 @@ def test_scan_refuses_dirty_repository_unless_fingerprinted(tmp_path: Path) -> N
     )
 
     assert load_json(plan)["preconditions"]["repository"]["dirty"] is True
+
+
+def test_seed_plan_populates_unreviewed_records_and_review_queue(tmp_path: Path) -> None:
+    service, paths, _repository, snapshot = initialized_service(tmp_path)
+    scan_plan = service.scan(
+        paths.profile,
+        offline_snapshot=str(snapshot["snapshot_id"]),
+        allow_dirty=False,
+    )
+    service.apply(scan_plan)
+    ledger_before = paths.ledger.read_bytes()
+
+    seed_plan = service.seed(paths.profile)
+
+    assert paths.ledger.read_bytes() == ledger_before
+    plan = load_json(seed_plan)
+    assert plan["plan_type"] == "ledger_seed"
+    assert plan["summary"]["added_records"] == 4
+    assert plan["policy"]["preserves_reviewed_records"] is True
+
+    service.apply(seed_plan)
+
+    ledger = load_json(paths.ledger)
+    assert len(ledger["records"]) == 4
+    assert all(record["status"] == "unknown" for record in ledger["records"])
+    assert all(
+        record["scope"]["state"] == "unreviewed" for record in ledger["records"]
+    )
+    function = next(
+        record for record in ledger["records"] if record["kind"] == "function"
+    )
+    assert function["evidence"]
+    queue = load_json(paths.review_queue)
+    assert len(queue["candidates"]) == 4
+    assert all(
+        candidate["suggested_status"] in {"unknown", "partial"}
+        for candidate in queue["candidates"]
+    )
+    assert service.validate(paths.profile) == []
+
+
+def test_seed_preserves_reviewed_record_fields(tmp_path: Path) -> None:
+    service, paths, _repository, snapshot = initialized_service(tmp_path)
+    scan_plan = service.scan(
+        paths.profile,
+        offline_snapshot=str(snapshot["snapshot_id"]),
+        allow_dirty=False,
+    )
+    service.apply(scan_plan)
+    first_seed = service.seed(paths.profile)
+    service.apply(first_seed)
+    ledger = load_json(paths.ledger)
+    function = next(
+        record for record in ledger["records"] if record["kind"] == "function"
+    )
+    function["scope"] = {"state": "in_scope", "category": "game_logic"}
+    function["status"] = "complete"
+    function["notes"] = "human-reviewed"
+    function["known_missing"] = []
+    write_canonical(paths.ledger, ledger)
+
+    second_seed = service.seed(paths.profile)
+    service.apply(second_seed)
+
+    updated = load_json(paths.ledger)
+    reviewed = next(
+        record for record in updated["records"] if record["id"] == function["id"]
+    )
+    assert reviewed["scope"] == {"state": "in_scope", "category": "game_logic"}
+    assert reviewed["status"] == "complete"
+    assert reviewed["notes"] == "human-reviewed"
+    queue = load_json(paths.review_queue)
+    assert function["id"] not in {
+        candidate["record_id"] for candidate in queue["candidates"]
+    }
+
+
+def test_seed_apply_rejects_ledger_changes_after_plan_creation(tmp_path: Path) -> None:
+    service, paths, _repository, snapshot = initialized_service(tmp_path)
+    scan_plan = service.scan(
+        paths.profile,
+        offline_snapshot=str(snapshot["snapshot_id"]),
+        allow_dirty=False,
+    )
+    service.apply(scan_plan)
+    seed_plan = service.seed(paths.profile)
+    ledger = load_json(paths.ledger)
+    ledger["review_note"] = "changed after seed"
+    write_canonical(paths.ledger, ledger)
+
+    with pytest.raises(ManagerError, match="ledger changed since plan creation"):
+        service.apply(seed_plan)

@@ -133,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     coverage_scan.add_argument("--offline-snapshot")
     coverage_scan.add_argument("--allow-dirty", action="store_true")
+    coverage_seed = coverage_commands.add_parser(
+        "seed", help="Plan unreviewed ledger records and an advisory review queue"
+    )
+    coverage_seed.add_argument(
+        "--profile", type=Path, default=Path("reports/coverage/profile.json")
+    )
     coverage_validate = coverage_commands.add_parser(
         "validate", help="Validate coverage inputs"
     )
@@ -347,6 +353,12 @@ def run(argv: Sequence[str] | None = None) -> int:
             print("No canonical inputs changed. Review the plan, then apply it with:")
             print(f"  ghidra-manager coverage apply {plan}")
             return 0
+        if args.coverage_command == "seed":
+            plan = service.seed(args.profile)
+            print(f"Coverage seed plan saved: {plan}")
+            print("No ledger records changed. Review the plan, then apply it with:")
+            print(f"  ghidra-manager coverage apply {plan}")
+            return 0
         if args.coverage_command == "validate":
             errors = service.validate(args.profile)
             if errors:
@@ -381,7 +393,8 @@ def run(argv: Sequence[str] | None = None) -> int:
             for plan_record in plans:
                 state = "current" if plan_record.get("current") else "stale"
                 print(
-                    f"{state} | {plan_record['path']} | "
+                    f"{state} | {plan_record.get('plan_type', 'scan')} | "
+                    f"{plan_record['path']} | "
                     f"{plan_record.get('plan_id', 'invalid')}"
                 )
             return 0

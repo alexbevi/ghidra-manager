@@ -386,3 +386,27 @@ def test_coverage_scan_emits_reviewable_plan(monkeypatch, tmp_path, capsys) -> N
     output = capsys.readouterr().out
     assert f"Coverage plan saved: {plan}" in output
     assert "No canonical inputs changed" in output
+
+
+def test_coverage_seed_emits_reviewable_plan(monkeypatch, tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    profile = tmp_path / "reports" / "coverage" / "profile.json"
+    plan = tmp_path / "reports" / "coverage" / "plans" / "seed.json"
+
+    class FakeCoverage:
+        def seed(self, value: Path) -> Path:
+            assert value == profile
+            return plan
+
+    class FakeManager:
+        def coverage_service(self) -> FakeCoverage:
+            return FakeCoverage()
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(["coverage", "seed", "--profile", str(profile)])
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert f"Coverage seed plan saved: {plan}" in output
+    assert "No ledger records changed" in output

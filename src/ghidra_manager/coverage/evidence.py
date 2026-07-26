@@ -227,7 +227,7 @@ def collect_evidence(
                         }
                     )
                 )
-            if DIAGNOSTIC_RE.search(line):
+            if source_kind != "architecture_anchor" and DIAGNOSTIC_RE.search(line):
                 facts.append(
                     _fact(
                         {

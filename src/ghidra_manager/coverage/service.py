@@ -21,9 +21,11 @@ from ghidra_manager.coverage.model import (
     PLAN_SCHEMA,
     PROFILE_SCHEMA,
     REPORT_SCHEMA,
+    REVIEW_QUEUE_SCHEMA,
     SCHEMA_VERSION,
     SNAPSHOT_SCHEMA,
     CoveragePaths,
+    content_id,
     load_json,
     require_schema,
     safe_component,
@@ -44,6 +46,7 @@ from ghidra_manager.coverage.repository import (
     repository_identity,
     repository_root,
 )
+from ghidra_manager.coverage.seeding import AUTOMATED_STATUSES, build_seed
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.mcp import DEFAULT_PORT, Instance, discover_instances
 
@@ -216,6 +219,35 @@ class CoverageService:
                                 errors.append(
                                     f"unknown source function record: {record.get('id')}"
                                 )
+            if paths.review_queue.is_file():
+                queue = load_json(paths.review_queue)
+                require_schema(queue, REVIEW_QUEUE_SCHEMA, path=paths.review_queue)
+                expected_queue = with_content_id(queue, "queue_id")["queue_id"]
+                if queue.get("queue_id") != expected_queue:
+                    errors.append("review queue content id is invalid")
+                if queue.get("snapshot_id") != snapshot_id:
+                    errors.append("review queue references a different snapshot")
+                if queue.get("evidence_scan_id") != evidence_id:
+                    errors.append("review queue references different evidence")
+                ledger_ids = {
+                    str(record["id"])
+                    for record in ledger.get("records", [])
+                    if isinstance(record, dict) and isinstance(record.get("id"), str)
+                }
+                for candidate in queue.get("candidates", []):
+                    if not isinstance(candidate, dict):
+                        errors.append("review queue candidate must be an object")
+                        continue
+                    if candidate.get("record_id") not in ledger_ids:
+                        errors.append(
+                            f"review queue references unknown record: "
+                            f"{candidate.get('record_id')}"
+                        )
+                    if candidate.get("suggested_status") not in AUTOMATED_STATUSES:
+                        errors.append(
+                            f"review queue contains authoritative status suggestion: "
+                            f"{candidate.get('suggested_status')}"
+                        )
         return errors
 
     def _resolve_live_instance(self, profile: dict[str, Any]) -> Instance:
@@ -343,6 +375,83 @@ class CoverageService:
             stale.unlink()
         return plan_path
 
+    def seed(self, profile_path: Path) -> Path:
+        """Generate a retained plan that seeds only missing/unreviewed ledger data."""
+        paths = CoveragePaths.from_profile(profile_path)
+        errors = self.validate(paths.profile)
+        if errors:
+            raise ManagerError("; ".join(errors))
+        profile = load_json(paths.profile)
+        ledger = load_json(paths.ledger)
+        active = profile["active"]
+        if not active.get("snapshot") or not active.get("evidence"):
+            raise ManagerError("Coverage seed requires an applied snapshot/evidence scan")
+        snapshot_path = paths.snapshots / _id_filename(str(active["snapshot"]))
+        evidence_path = paths.evidence / _id_filename(str(active["evidence"]))
+        snapshot = load_json(snapshot_path)
+        evidence = load_json(evidence_path)
+        seeded_ledger, review_queue, summary = build_seed(
+            profile, ledger, snapshot, evidence
+        )
+        ledger_id = content_id(seeded_ledger)
+        ledger_cache = self.cache / "seeds" / f"{ledger_id.removeprefix('sha256:')}-ledger.json"
+        queue_cache = self.cache / "seeds" / _id_filename(str(review_queue["queue_id"]))
+        write_canonical(ledger_cache, seeded_ledger, mode=0o600)
+        write_canonical(queue_cache, review_queue, mode=0o600)
+        plan: dict[str, Any] = {
+            "schema": PLAN_SCHEMA,
+            "version": SCHEMA_VERSION,
+            "plan_type": "ledger_seed",
+            "created_at": datetime.now(UTC).isoformat(),
+            "profile_path": str(paths.profile),
+            "preconditions": {
+                "profile_hash": _file_hash(paths.profile),
+                "ledger_hash": _file_hash(paths.ledger),
+                "active": active,
+                "snapshot_hash": _file_hash(snapshot_path),
+                "evidence_hash": _file_hash(evidence_path),
+            },
+            "payloads": {
+                "ledger": {
+                    "id": ledger_id,
+                    "cache_path": str(ledger_cache),
+                    "hash": _file_hash(ledger_cache),
+                },
+                "review_queue": {
+                    "id": review_queue["queue_id"],
+                    "cache_path": str(queue_cache),
+                    "hash": _file_hash(queue_cache),
+                },
+            },
+            "summary": summary,
+            "operations": [
+                {
+                    "kind": "merge_unreviewed_ledger_records",
+                    "added": summary["added_records"],
+                    "refreshed": summary["refreshed_unreviewed_records"],
+                    "preserved": summary["preserved_records"],
+                },
+                {
+                    "kind": "publish_review_queue",
+                    "candidates": summary["review_candidates"],
+                },
+            ],
+            "policy": {
+                "mutates_ghidra": False,
+                "mutates_ledger": True,
+                "preserves_reviewed_records": True,
+                "suggestions_are_advisory": True,
+            },
+        }
+        plan = with_content_id(plan, "plan_id")
+        paths.plans.mkdir(parents=True, exist_ok=True)
+        plan_path = paths.plans / _id_filename(str(plan["plan_id"]))
+        write_canonical(plan_path, plan, mode=0o600)
+        plans = sorted(paths.plans.glob("*.json"), key=lambda item: item.stat().st_mtime)
+        for stale in plans[:-PLAN_RETENTION]:
+            stale.unlink()
+        return plan_path
+
     def _recheck_live_snapshot(
         self, profile: dict[str, Any], expected_snapshot_id: str
     ) -> None:
@@ -368,11 +477,15 @@ class CoverageService:
         profile = load_json(paths.profile)
         preconditions = plan["preconditions"]
         if _file_hash(paths.profile) != preconditions["profile_hash"]:
-            raise ManagerError("Coverage profile changed since scan; rerun scan")
+            raise ManagerError("Coverage profile changed since plan creation; regenerate plan")
         if _file_hash(paths.ledger) != preconditions["ledger_hash"]:
-            raise ManagerError("Coverage ledger changed since scan; rerun scan")
+            raise ManagerError("Coverage ledger changed since plan creation; regenerate plan")
         if profile.get("active") != preconditions["active"]:
-            raise ManagerError("Active coverage inputs changed since scan; rerun scan")
+            raise ManagerError(
+                "Active coverage inputs changed since plan creation; regenerate plan"
+            )
+        if plan.get("plan_type") == "ledger_seed":
+            return self._apply_seed_plan(plan, paths)
         repository = Path(str(profile["repository"]["root"]))
         current_repository = repository_identity(
             repository, allow_dirty=bool(preconditions["allow_dirty"])
@@ -410,10 +523,55 @@ class CoverageService:
             "evidence": evidence_payload["id"],
         }
         write_canonical(paths.profile, updated_profile)
+        paths.review_queue.unlink(missing_ok=True)
         return [
             f"Published snapshot {snapshot_payload['id']}.",
             f"Published evidence {evidence_payload['id']}.",
             "Reviewed ledger unchanged.",
+        ]
+
+    def _apply_seed_plan(
+        self, plan: dict[str, Any], paths: CoveragePaths
+    ) -> list[str]:
+        preconditions = plan["preconditions"]
+        active = preconditions["active"]
+        snapshot_path = paths.snapshots / _id_filename(str(active["snapshot"]))
+        evidence_path = paths.evidence / _id_filename(str(active["evidence"]))
+        if _file_hash(snapshot_path) != preconditions["snapshot_hash"]:
+            raise ManagerError("Coverage snapshot changed since seed; regenerate plan")
+        if _file_hash(evidence_path) != preconditions["evidence_hash"]:
+            raise ManagerError("Coverage evidence changed since seed; regenerate plan")
+        ledger_payload = plan["payloads"]["ledger"]
+        queue_payload = plan["payloads"]["review_queue"]
+        for payload in (ledger_payload, queue_payload):
+            cache_path = Path(str(payload["cache_path"]))
+            if _file_hash(cache_path) != payload["hash"]:
+                raise ManagerError("Coverage seed payload is missing or changed; regenerate plan")
+        seeded_ledger = load_json(Path(str(ledger_payload["cache_path"])))
+        review_queue = load_json(Path(str(queue_payload["cache_path"])))
+        if content_id(seeded_ledger) != ledger_payload["id"]:
+            raise ManagerError("Coverage seed ledger payload identity is invalid")
+        require_schema(review_queue, REVIEW_QUEUE_SCHEMA)
+        if review_queue.get("queue_id") != queue_payload["id"]:
+            raise ManagerError("Coverage review queue payload identity is invalid")
+        ledger_errors = validate_ledger(seeded_ledger)
+        if ledger_errors:
+            raise ManagerError("; ".join(ledger_errors))
+        if any(
+            not isinstance(candidate, dict)
+            or candidate.get("suggested_status") not in AUTOMATED_STATUSES
+            for candidate in review_queue.get("candidates", [])
+        ):
+            raise ManagerError("Coverage review queue contains an authoritative suggestion")
+        write_canonical(paths.review_queue, review_queue)
+        write_canonical(paths.ledger, seeded_ledger)
+        summary = plan["summary"]
+        return [
+            f"Added {summary['added_records']} unreviewed ledger records.",
+            f"Refreshed {summary['refreshed_unreviewed_records']} unreviewed records.",
+            f"Preserved {summary['preserved_records']} existing records.",
+            f"Review queue: {paths.review_queue} "
+            f"({summary['review_candidates']} candidates).",
         ]
 
     def plans(self, profile_path: Path) -> list[dict[str, object]]:
@@ -433,6 +591,7 @@ class CoverageService:
                         "path": str(path),
                         "plan_id": plan.get("plan_id"),
                         "created_at": plan.get("created_at"),
+                        "plan_type": plan.get("plan_type", "scan"),
                         "current": current,
                     }
                 )

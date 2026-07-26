@@ -19,6 +19,7 @@ EVIDENCE_SCHEMA = "ghidra-manager-coverage-evidence"
 PLAN_SCHEMA = "ghidra-manager-coverage-plan"
 REPORT_SCHEMA = "ghidra-manager-coverage-report"
 DIFF_SCHEMA = "ghidra-manager-coverage-diff"
+REVIEW_QUEUE_SCHEMA = "ghidra-manager-coverage-review-queue"
 SCHEMA_VERSION = 1
 
 COVERAGE_STATUSES = {
@@ -185,6 +186,10 @@ class CoveragePaths:
     @property
     def plans(self) -> Path:
         return self.root / "plans"
+
+    @property
+    def review_queue(self) -> Path:
+        return self.root / "review-queue.json"
 
     @property
     def reports(self) -> Path:

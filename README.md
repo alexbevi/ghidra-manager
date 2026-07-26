@@ -49,7 +49,7 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
-| `ghidra-manager coverage COMMAND` | `init`, `scan`, `validate`, `report`, `diff`, `plans`, `apply` | `Coverage plan saved: <repository>/reports/coverage/plans/<plan>.json` |
+| `ghidra-manager coverage COMMAND` | `init`, `scan`, `seed`, `validate`, `report`, `diff`, `plans`, `apply` | `Coverage plan saved: <repository>/reports/coverage/plans/<plan>.json` |
 | `ghidra-manager instances` | `--base-port PORT` | `MCP port 8089` |
 
 `launch` and `bridge` deliberately pass remaining arguments through rather than
@@ -539,6 +539,8 @@ With the exact project and program open, create a read-only scan plan:
 ghidra-manager coverage scan
 ghidra-manager coverage plans
 ghidra-manager coverage apply reports/coverage/plans/<plan>.json
+ghidra-manager coverage seed
+ghidra-manager coverage apply reports/coverage/plans/<seed-plan>.json
 ```
 
 `scan` reads the program, Git history, source comments, architecture anchors,
@@ -556,6 +558,22 @@ validate it:
 ghidra-manager coverage validate
 ghidra-manager coverage report
 ```
+
+`seed` automates the ledger bookkeeping after a scan has been applied. It
+creates a retained plan that adds missing functions and behavioral units as
+`unreviewed`/`unknown`, attaches exact generated evidence to functions, and
+publishes a deterministic `review-queue.json`. Applying a seed plan may refresh
+evidence, subsystem, or reachability on records that are still unreviewed. It
+never changes an already reviewed scope, status, notes, deviations, or
+verification record.
+
+Review-queue suggestions are advisory. The seed may suggest `partial` only
+when an unsupported diagnostic is explicitly linked to the same original
+function. A diagnostic elsewhere in the same source file raises review
+priority but leaves the suggestion `unknown`. Seed never suggests `complete`,
+`equivalent`, `not_applicable`, or a verified state. Candidates are ordered by
+deterministic evidence, diagnostic, and reachability factors so review can
+begin with the strongest mappings.
 
 Reports distinguish function traceability, conservative reviewed coverage,
 the partial-inclusive coverage ceiling, behavioral-unit status, verification
