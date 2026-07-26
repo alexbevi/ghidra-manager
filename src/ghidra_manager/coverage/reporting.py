@@ -1,4 +1,4 @@
-"""Coverage calculations, Markdown rendering, and report diffs."""
+"""Deterministic coverage calculations and canonical report construction."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from collections import Counter
 from typing import Any
 
 from ghidra_manager.coverage.model import (
-    DIFF_SCHEMA,
     REPORT_SCHEMA,
     SCHEMA_VERSION,
     with_content_id,
@@ -15,13 +14,6 @@ from ghidra_manager.coverage.model import (
 IMPLEMENTED = {"complete", "equivalent"}
 CEILING = IMPLEMENTED | {"partial"}
 GAPS = {"missing", "partial", "unknown"}
-STATUS_ORDER = (
-    "complete",
-    "equivalent",
-    "partial",
-    "missing",
-    "unknown",
-)
 
 
 def _ratio(numerator: int, denominator: int) -> dict[str, int | float | None]:
@@ -78,6 +70,41 @@ def _behavioral_dashboard(
     }
 
 
+def _merged_behavioral_records(
+    records: list[dict[str, Any]],
+    evidence: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Overlay reviewed ledger records on discovered behavioral inventory."""
+    merged: dict[str, dict[str, Any]] = {}
+    for unit in evidence.get("behavioral_units", []):
+        if not isinstance(unit, dict) or not isinstance(unit.get("id"), str):
+            continue
+        merged[str(unit["id"])] = {
+            "id": unit["id"],
+            "kind": "behavioral_unit",
+            "unit_type": unit.get("unit_type", "registry"),
+            "subsystem": unit.get("subsystem", "unassigned"),
+            "scope": {"state": "unreviewed"},
+            "status": "unknown",
+            "verification": {"state": "unverified", "records": []},
+            "critical_progression": bool(unit.get("critical_progression")),
+            "player_impact": unit.get("player_impact"),
+            "original": {
+                "label": unit.get("label"),
+                "provider": unit.get("provider"),
+                "source": unit.get("source"),
+            },
+        }
+    for record in records:
+        if record.get("kind") != "behavioral_unit" or not isinstance(
+            record.get("id"), str
+        ):
+            continue
+        identifier = str(record["id"])
+        merged[identifier] = {**merged.get(identifier, {}), **record}
+    return [merged[identifier] for identifier in sorted(merged)]
+
+
 def _record_label(record: dict[str, Any]) -> str:
     original = record.get("original", {})
     if isinstance(original, dict):
@@ -121,9 +148,6 @@ def build_report(
     ]
     out_of_scope = [
         item for item in records if item.get("scope", {}).get("state") == "out_of_scope"
-    ]
-    unreviewed = [
-        item for item in records if item.get("scope", {}).get("state") == "unreviewed"
     ]
     in_scope_functions = [item for item in in_scope if item.get("kind") == "function"]
     status_counts = Counter(str(item.get("status")) for item in in_scope_functions)
@@ -185,12 +209,6 @@ def build_report(
             str(item.get("id")),
         )
     )
-    subsystem_counts: dict[str, Counter[str]] = {}
-    for record in in_scope:
-        if record.get("kind") != "behavioral_unit":
-            continue
-        subsystem = str(record.get("subsystem", "unspecified"))
-        subsystem_counts.setdefault(subsystem, Counter())[str(record.get("status"))] += 1
     reviewed_function_ids = {
         str(item.get("id"))
         for item in records
@@ -198,27 +216,17 @@ def build_report(
         and item.get("scope", {}).get("state") != "unreviewed"
     }
     inventory_function_ids = set(function_map)
+    behavioral_records = _merged_behavioral_records(records, evidence)
+    behavioral_inventory_ids = {str(item["id"]) for item in behavioral_records}
     reviewed_behavioral_ids = {
-        str(item.get("id"))
-        for item in records
-        if item.get("kind") == "behavioral_unit"
-        and item.get("scope", {}).get("state") != "unreviewed"
-    }
-    inventory_behavioral_ids = {
         str(item["id"])
-        for item in evidence.get("behavioral_units", [])
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
+        for item in behavioral_records
+        if item.get("scope", {}).get("state") != "unreviewed"
     }
-    function_record_ids = {
-        str(item["id"])
-        for item in records
-        if item.get("kind") == "function" and isinstance(item.get("id"), str)
-    }
-    behavioral_records = [
-        item for item in records if item.get("kind") == "behavioral_unit"
-    ]
     in_scope_behavioral = [
-        item for item in in_scope if item.get("kind") == "behavioral_unit"
+        item
+        for item in behavioral_records
+        if item.get("scope", {}).get("state") == "in_scope"
     ]
     behavioral_statuses = Counter(
         str(item.get("status", "unknown")) for item in in_scope_behavioral
@@ -249,7 +257,8 @@ def build_report(
         item.get("verification", {}).get("state") != "unverified"
         for item in in_scope_scenarios
     )
-    reviewed_records = len(in_scope) + len(out_of_scope)
+    reviewed_records = len(reviewed_function_ids) + len(reviewed_behavioral_ids)
+    inventory_records = len(inventory_function_ids) + len(behavioral_inventory_ids)
     candidates = [
         item
         for item in (review_queue or {}).get("candidates", [])
@@ -268,7 +277,7 @@ def build_report(
         str(target)
         for fact in facts
         for target in fact.get("original_targets", [])
-        if isinstance(target, str) and target in function_record_ids
+        if isinstance(target, str) and target in function_map
     }
     implementation_paths = {
         str(target["path"])
@@ -292,25 +301,28 @@ def build_report(
             "ledger_records": len(records),
             "scope_reviewed": reviewed_records,
             "scope_unreviewed": len(inventory_function_ids - reviewed_function_ids)
-            + sum(item.get("kind") != "function" for item in unreviewed),
+            + len(behavioral_inventory_ids - reviewed_behavioral_ids),
             "behavioral_units_unreviewed": len(
-                inventory_behavioral_ids - reviewed_behavioral_ids
+                behavioral_inventory_ids - reviewed_behavioral_ids
             ),
-            "excluded": len(out_of_scope)
-            + sum(item.get("status") == "not_applicable" for item in records),
+            "excluded": len(out_of_scope),
+            "not_applicable": sum(
+                item.get("status") == "not_applicable" for item in out_of_scope
+            ),
         },
         "assessment": {
-            "review_readiness": _ratio(reviewed_records, len(records)),
+            "review_readiness": _ratio(reviewed_records, inventory_records),
             "functions": {
                 "reviewed": len(reviewed_function_ids),
-                "unreviewed": len(function_record_ids - reviewed_function_ids),
-                "total": len(function_record_ids),
+                "unreviewed": len(inventory_function_ids - reviewed_function_ids),
+                "total": len(inventory_function_ids),
             },
             "behavioral_units": {
                 "reviewed": len(reviewed_behavioral_ids),
-                "unreviewed": len(behavioral_records)
-                - len(reviewed_behavioral_ids),
-                "total": len(behavioral_records),
+                "unreviewed": len(
+                    behavioral_inventory_ids - reviewed_behavioral_ids
+                ),
+                "total": len(behavioral_inventory_ids),
             },
             "review_queue": {
                 "available": review_queue is not None,
@@ -367,7 +379,7 @@ def build_report(
                 ),
                 "status_distribution": dict(sorted(behavioral_statuses.items())),
             },
-            "critical_scenarios": {
+            "player_scenarios": {
                 "review_readiness": _ratio(
                     len(reviewed_scenarios),
                     len(scenario_records),
@@ -392,12 +404,8 @@ def build_report(
                 "coverage_ceiling": _ratio(weighted_ceiling, weighted_denominator),
                 "functions_without_weight": missing_weights,
             },
-            "behavioral_units_by_subsystem": {
-                key: dict(sorted(value.items()))
-                for key, value in sorted(subsystem_counts.items())
-            },
         },
-        "subsystem_dashboard": _behavioral_dashboard(records),
+        "subsystem_dashboard": _behavioral_dashboard(behavioral_records),
         "representative_findings": {
             status: [
                 _finding(item)
@@ -406,7 +414,7 @@ def build_report(
             ][:5]
             for status in ("complete", "equivalent", "partial", "missing")
         },
-        "critical_scenarios": [
+        "player_scenarios": [
             {
                 "id": item["id"],
                 "label": item.get("original", {}).get("label")
@@ -466,479 +474,3 @@ def build_report(
         ],
     }
     return with_content_id(report, "report_id")
-
-
-def markdown_report(report: dict[str, Any]) -> str:
-    metrics = report["metrics"]
-    assessment = report["assessment"]
-
-    def metric(name: str) -> str:
-        value = metrics[name]
-        ratio = value["ratio"]
-        percentage = "n/a" if ratio is None else f"{ratio * 100:.2f}%"
-        return f"{value['numerator']} / {value['denominator']} ({percentage})"
-
-    lines = [
-        f"# Coverage Report: {report['profile_id']}",
-        "",
-        f"- Snapshot: `{report['inputs']['snapshot_id']}`",
-        f"- Evidence: `{report['inputs']['evidence_scan_id']}`",
-        f"- Repository revision: `{report['inputs']['repository_revision']}`",
-        "",
-        "## Executive Summary",
-        "",
-    ]
-    behavioral_metrics = metrics["behavioral_coverage"]
-    scenario_metrics = metrics["critical_scenarios"]
-    if behavioral_metrics["conservative_coverage"]["denominator"]:
-        value = behavioral_metrics["conservative_coverage"]
-        ceiling = behavioral_metrics["coverage_ceiling"]
-        verified = behavioral_metrics["verified"]
-        lines.extend(
-            [
-                f"- Conservative functional coverage: "
-                f"{value['numerator']} / {value['denominator']} "
-                f"({value['ratio'] * 100:.2f}%)",
-                f"- Functional coverage ceiling: "
-                f"{ceiling['numerator']} / {ceiling['denominator']} "
-                f"({ceiling['ratio'] * 100:.2f}%)",
-                f"- Verified behavioral units: "
-                f"{verified['numerator']} / {verified['denominator']} "
-                f"({verified['ratio'] * 100:.2f}%)",
-            ]
-        )
-    elif metrics["conservative_coverage"]["denominator"]:
-        lines.extend(
-            [
-                f"- Conservative function coverage: "
-                f"{metric('conservative_coverage')}",
-                f"- Function coverage ceiling: {metric('coverage_ceiling')}",
-            ]
-        )
-    else:
-        lines.append(
-            "- Implementation coverage cannot yet be estimated because no "
-            "in-scope functions have been reviewed."
-        )
-    lines.extend(
-        [
-            f"- Assessment readiness: "
-            f"{assessment['review_readiness']['numerator']} / "
-            f"{assessment['review_readiness']['denominator']} reviewed",
-            f"- Behavioral-unit review: "
-            f"{assessment['behavioral_units']['reviewed']} / "
-            f"{assessment['behavioral_units']['total']} reviewed",
-            f"- Critical-scenario review: "
-            f"{scenario_metrics['review_readiness']['numerator']} / "
-            f"{scenario_metrics['review_readiness']['denominator']} reviewed",
-            "",
-            "Completion, evidence linkage, and verification are separate claims.",
-            "",
-            "## Assessment Readiness",
-            "",
-            f"- Function records: {assessment['functions']['reviewed']} reviewed; "
-            f"{assessment['functions']['unreviewed']} unreviewed",
-            f"- Behavioral units: {assessment['behavioral_units']['reviewed']} reviewed; "
-            f"{assessment['behavioral_units']['unreviewed']} unreviewed",
-            f"- Excluded/not applicable: {report['inventory']['excluded']}",
-        ]
-    )
-    queue = assessment["review_queue"]
-    if queue["available"]:
-        confidence = ", ".join(
-            f"{key}={value}"
-            for key, value in sorted(queue["confidence_distribution"].items())
-        ) or "none"
-        lines.extend(
-            [
-                f"- Advisory review queue: {queue['candidates']} candidates; "
-                f"{queue['suggested_in_scope']} suggested in-scope",
-                f"- Candidate confidence: {confidence}",
-            ]
-        )
-    else:
-        lines.append("- Advisory review queue: unavailable")
-    lines.extend(
-        [
-            "",
-            "## Behavioral Coverage by Subsystem",
-            "",
-        ]
-    )
-    dashboard = report["subsystem_dashboard"]
-    if dashboard:
-        lines.extend(
-            [
-                "| Subsystem | Reviewed | Complete | Equivalent | Partial | "
-                "Missing | Unknown | Verified |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-            ]
-        )
-        for subsystem, row in dashboard.items():
-            statuses = row["statuses"]
-            verified = sum(
-                count
-                for state, count in row["verification"].items()
-                if state != "unverified"
-            )
-            lines.append(
-                f"| {subsystem} | {row['reviewed']} / {row['total']} | "
-                f"{statuses.get('complete', 0)} | "
-                f"{statuses.get('equivalent', 0)} | "
-                f"{statuses.get('partial', 0)} | "
-                f"{statuses.get('missing', 0)} | "
-                f"{statuses.get('unknown', 0)} | {verified} |"
-            )
-        lines.extend(
-            [
-                "",
-                "Status counts include reviewed in-scope behavioral units. "
-                "Reviewed totals also include explicit out-of-scope decisions.",
-            ]
-        )
-    else:
-        lines.append("No behavioral units are present in the reviewed ledger.")
-    lines.extend(
-        [
-            "",
-            "## Critical Player Scenarios",
-            "",
-        ]
-    )
-    scenarios = report["critical_scenarios"]
-    if scenarios:
-        lines.extend(
-            [
-                "| Scenario | Scope review | Status | Verification | Player impact |",
-                "| --- | --- | --- | --- | --- |",
-            ]
-        )
-        for scenario in scenarios:
-            impact = str(scenario["player_impact"] or "").replace("|", "\\|")
-            lines.append(
-                f"| {scenario['label']} | {scenario['scope']} | "
-                f"{scenario['status']} | {scenario['verification']} | {impact} |"
-            )
-        lines.extend(
-            [
-                "",
-                "Scenario coverage is derived only from reviewer-authored scope, status, "
-                "and verification records.",
-            ]
-        )
-    else:
-        lines.append("No critical player scenarios are defined.")
-    lines.extend(
-        [
-            "",
-            "## Representative Reviewed Findings",
-            "",
-        ]
-    )
-    finding_labels = {
-        "complete": "Completed behavior",
-        "equivalent": "Equivalent replacements",
-        "partial": "Partial implementations",
-        "missing": "Missing behavior",
-    }
-    any_findings = False
-    for status, heading in finding_labels.items():
-        findings = report["representative_findings"][status]
-        if not findings:
-            continue
-        any_findings = True
-        lines.extend([f"### {heading}", ""])
-        for finding in findings:
-            details = [
-                f"subsystem={finding['subsystem']}",
-                f"verification={finding['verification']}",
-            ]
-            if finding["critical_progression"]:
-                details.append("critical progression")
-            lines.append(
-                f"- **{finding['label']}** (`{finding['id']}`): "
-                f"{'; '.join(details)}"
-            )
-            if finding["player_impact"]:
-                lines.append(f"  - Player impact: {finding['player_impact']}")
-            if finding["known_missing"]:
-                lines.append(
-                    f"  - Known missing: {', '.join(map(str, finding['known_missing']))}"
-                )
-            if finding["deviations"]:
-                lines.append(
-                    f"  - Deviations: {', '.join(map(str, finding['deviations']))}"
-                )
-        lines.append("")
-    if not any_findings:
-        lines.append(
-            "No reviewed complete, equivalent, partial, or missing findings are available."
-        )
-    evidence = report["evidence_summary"]
-    fact_kinds = ", ".join(
-        f"{key}={value}"
-        for key, value in sorted(evidence["fact_kind_distribution"].items())
-    ) or "none"
-    lines.extend(
-        [
-            "",
-            "## Evidence Readiness",
-            "",
-            f"- Evidence facts: {evidence['facts']} ({fact_kinds})",
-            f"- Evidence-linked original functions: {evidence['linked_functions']}",
-            f"- Reimplementation paths referenced: {evidence['implementation_paths']}",
-            f"- Unresolved original anchors: {evidence['unresolved_anchors']}",
-            f"- Discovered behavioral units: {evidence['behavioral_units']}",
-            "",
-            "Evidence indicates traceability and review readiness; it does not establish "
-            "implementation completeness.",
-            "",
-            "## Engineering Metrics",
-            "",
-            f"- Function traceability: {metric('function_traceability')}",
-            f"- Conservative implementation coverage: {metric('conservative_coverage')}",
-            f"- Coverage ceiling: {metric('coverage_ceiling')}",
-            f"- Scope-unreviewed functions/records: "
-            f"{report['inventory']['scope_unreviewed']}",
-            f"- Unreviewed behavioral units: "
-            f"{report['inventory']['behavioral_units_unreviewed']}",
-            "The coverage ceiling treats partial records as an upper bound, not "
-            "completed behavior.",
-            "Instruction-weighted views measure code size, not behavioral importance.",
-            "",
-            "### Reviewed Status Distribution",
-            "",
-        ]
-    )
-    status_distribution = metrics["status_distribution"]
-    if status_distribution:
-        lines.extend(
-            f"- {status}: {count}"
-            for status, count in sorted(status_distribution.items())
-        )
-    else:
-        lines.append("No in-scope functions have been classified.")
-    lines.extend(
-        [
-            "",
-            "### Verification Distribution",
-            "",
-        ]
-    )
-    verification_distribution = metrics["verification_distribution"]
-    if verification_distribution:
-        lines.extend(
-            f"- {state}: {count}"
-            for state, count in sorted(verification_distribution.items())
-        )
-    else:
-        lines.append("No in-scope records have verification classifications.")
-    lines.extend(
-        [
-        "",
-        "## Prioritized Gaps",
-        "",
-        ]
-    )
-    if not report["gaps"]:
-        if report["inventory"]["scope_reviewed"]:
-            lines.append("No gaps are recorded among reviewed in-scope records.")
-        else:
-            lines.append(
-                "Gap analysis is unavailable because no records have a reviewed scope."
-            )
-    else:
-        lines.extend(
-            f"- **{gap['label']}** (`{gap['id']}`) — {gap['status']}; "
-            f"subsystem={gap['subsystem']}; reachability={gap['reachability']}; "
-            f"priority={gap['priority']}"
-            for gap in report["gaps"]
-        )
-    return "\n".join(lines) + "\n"
-
-
-def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
-    base_records = {str(item["id"]): item for item in base.get("classifications", [])}
-    head_records = {str(item["id"]): item for item in head.get("classifications", [])}
-    added = sorted(head_records.keys() - base_records.keys())
-    removed = sorted(base_records.keys() - head_records.keys())
-    resolved: list[str] = []
-    reopened: list[str] = []
-    reclassified: list[str] = []
-    verification_changed: list[str] = []
-    verification_upgraded: list[str] = []
-    verification_downgraded: list[str] = []
-    evidence_only: list[str] = []
-    verification_rank = {
-        "unverified": 0,
-        "static_verified": 1,
-        "test_verified": 2,
-        "runtime_verified": 3,
-        "retail_parity_tested": 4,
-    }
-    for identifier in sorted(base_records.keys() & head_records.keys()):
-        before = base_records[identifier]
-        after = head_records[identifier]
-        before_status = before.get("status")
-        after_status = after.get("status")
-        if before_status in GAPS and after_status in IMPLEMENTED:
-            resolved.append(identifier)
-        elif before_status in IMPLEMENTED and after_status in GAPS:
-            reopened.append(identifier)
-        elif before_status != after_status or before.get("scope") != after.get("scope"):
-            reclassified.append(identifier)
-        if before.get("verification") != after.get("verification"):
-            verification_changed.append(identifier)
-            before_rank = verification_rank.get(str(before.get("verification")), 0)
-            after_rank = verification_rank.get(str(after.get("verification")), 0)
-            if after_rank > before_rank:
-                verification_upgraded.append(identifier)
-            elif after_rank < before_rank:
-                verification_downgraded.append(identifier)
-        if (
-            before.get("evidence") != after.get("evidence")
-            and before_status == after_status
-            and before.get("scope") == after.get("scope")
-            and before.get("verification") == after.get("verification")
-        ):
-            evidence_only.append(identifier)
-
-    def details(
-        identifiers: list[str],
-        records: dict[str, dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        return [
-            {
-                "id": identifier,
-                "label": records[identifier].get("label", identifier),
-                "kind": records[identifier].get("kind"),
-                "unit_type": records[identifier].get("unit_type"),
-                "subsystem": records[identifier].get("subsystem", "unassigned"),
-                "status": records[identifier].get("status"),
-                "verification": records[identifier].get("verification"),
-                "critical_progression": bool(
-                    records[identifier].get("critical_progression")
-                ),
-                "player_impact": records[identifier].get("player_impact"),
-            }
-            for identifier in identifiers
-        ]
-
-    added_gaps = [
-        identifier
-        for identifier in added
-        if head_records[identifier].get("scope") == "in_scope"
-        and head_records[identifier].get("status") in {"missing", "partial"}
-    ]
-    result: dict[str, Any] = {
-        "schema": DIFF_SCHEMA,
-        "version": SCHEMA_VERSION,
-        "base_report_id": base["report_id"],
-        "head_report_id": head["report_id"],
-        "base_revision": base["inputs"]["repository_revision"],
-        "head_revision": head["inputs"]["repository_revision"],
-        "changes": {
-            "added": added,
-            "added_gaps": added_gaps,
-            "removed": removed,
-            "resolved": resolved,
-            "reopened": reopened,
-            "reclassified": reclassified,
-            "verification_changed": verification_changed,
-            "verification_upgraded": verification_upgraded,
-            "verification_downgraded": verification_downgraded,
-            "evidence_only": evidence_only,
-        },
-        "player_facing": {
-            "newly_covered": details(resolved, head_records),
-            "regressions": details(reopened, head_records),
-            "new_gaps": details(added_gaps, head_records),
-            "verification_upgrades": details(verification_upgraded, head_records),
-            "verification_downgrades": details(
-                verification_downgraded, head_records
-            ),
-            "critical_changes": details(
-                [
-                    identifier
-                    for identifier in sorted(
-                        set(added)
-                        | set(removed)
-                        | set(resolved)
-                        | set(reopened)
-                        | set(reclassified)
-                        | set(verification_changed)
-                    )
-                    if (
-                        head_records.get(identifier, base_records.get(identifier, {}))
-                    ).get("critical_progression")
-                ],
-                {
-                    **base_records,
-                    **head_records,
-                },
-            ),
-        },
-    }
-    return with_content_id(result, "diff_id")
-
-
-def markdown_diff(value: dict[str, Any]) -> str:
-    changes = value["changes"]
-    lines = [
-        "# Coverage Diff",
-        "",
-        f"- Base revision: `{value['base_revision']}`",
-        f"- Head revision: `{value['head_revision']}`",
-        f"- Added records: {len(changes['added'])}",
-        f"- Removed records: {len(changes['removed'])}",
-        f"- Resolved gaps: {len(changes['resolved'])}",
-        f"- Reopened gaps: {len(changes['reopened'])}",
-        f"- Reclassified gaps: {len(changes['reclassified'])}",
-        f"- Verification changes: {len(changes['verification_changed'])}",
-        f"- Verification upgrades: {len(changes['verification_upgraded'])}",
-        f"- Verification downgrades: {len(changes['verification_downgraded'])}",
-        f"- Evidence-only changes: {len(changes['evidence_only'])}",
-        "",
-    ]
-    player_facing = value["player_facing"]
-    lines.extend(["## Player-Visible Changes", ""])
-    sections = (
-        ("newly_covered", "Newly covered behavior"),
-        ("regressions", "Regressions or reopened gaps"),
-        ("new_gaps", "New reviewed gaps"),
-        ("verification_upgrades", "Verification upgrades"),
-        ("verification_downgrades", "Verification downgrades"),
-    )
-    any_changes = False
-    for key, heading in sections:
-        items = player_facing[key]
-        if not items:
-            continue
-        any_changes = True
-        lines.extend([f"### {heading}", ""])
-        for item in items:
-            critical = "; critical progression" if item["critical_progression"] else ""
-            impact = f"; {item['player_impact']}" if item["player_impact"] else ""
-            lines.append(
-                f"- **{item['label']}** (`{item['id']}`): "
-                f"{item['status']}; verification={item['verification']}"
-                f"{critical}{impact}"
-            )
-        lines.append("")
-    if not any_changes:
-        lines.append("No reviewed player-visible coverage changes.")
-        lines.append("")
-    if player_facing["critical_changes"]:
-        lines.extend(
-            [
-                "## Critical Progression Changes",
-                "",
-                *[
-                    f"- **{item['label']}** (`{item['id']}`): "
-                    f"{item['status']}; verification={item['verification']}"
-                    for item in player_facing["critical_changes"]
-                ],
-                "",
-            ]
-        )
-    return "\n".join(lines)

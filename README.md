@@ -596,7 +596,7 @@ status, verification state, and instruction-weighted views. Behavioral coverage
 is the primary functional signal when reviewed units exist. Reports include a
 subsystem matrix with reviewed totals, status counts, and independently
 verified-unit counts; function-count and instruction-weighted metrics remain
-engineering detail. A critical-player-scenario table shows scope, status,
+engineering detail. A player-scenario table shows scope, status,
 verification, and player impact separately. The report also selects
 deterministic representative completed, equivalent, partial, and missing
 findings, including player impact, known missing branches, and deviations when

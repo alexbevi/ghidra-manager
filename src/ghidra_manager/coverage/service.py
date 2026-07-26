@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ghidra_manager.config import ManagerPaths
+from ghidra_manager.coverage.diffing import build_diff, markdown_diff
 from ghidra_manager.coverage.evidence import collect_evidence
 from ghidra_manager.coverage.inventory import EndpointFetch, build_snapshot, fetch_endpoint
 from ghidra_manager.coverage.model import (
@@ -34,12 +35,8 @@ from ghidra_manager.coverage.model import (
     with_content_id,
     write_canonical,
 )
-from ghidra_manager.coverage.reporting import (
-    build_diff,
-    build_report,
-    markdown_diff,
-    markdown_report,
-)
+from ghidra_manager.coverage.rendering import markdown_report
+from ghidra_manager.coverage.reporting import build_report
 from ghidra_manager.coverage.repository import (
     atomic_directory_create,
     ensure_locally_ignored,

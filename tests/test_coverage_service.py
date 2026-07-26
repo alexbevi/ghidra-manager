@@ -174,6 +174,12 @@ def test_offline_scan_apply_and_report_preserve_ledger(tmp_path: Path) -> None:
         unit["id"] == "scummvm-ripper:scenario:save-restore"
         for unit in evidence["behavioral_units"]
     )
+    save_restore = next(
+        unit
+        for unit in evidence["behavioral_units"]
+        if unit["id"] == "scummvm-ripper:scenario:save-restore"
+    )
+    assert save_restore["subsystem"] == "save-restore"
     assert any(fact["kind"] == "commit_anchor" for fact in evidence["facts"])
     assert any(fact["kind"] == "architecture_anchor" for fact in evidence["facts"])
     assert all(

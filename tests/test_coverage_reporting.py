@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
+from ghidra_manager.coverage.diffing import build_diff, markdown_diff
 from ghidra_manager.coverage.model import (
     EVIDENCE_SCHEMA,
     LEDGER_SCHEMA,
@@ -8,12 +9,8 @@ from ghidra_manager.coverage.model import (
     SCHEMA_VERSION,
     SNAPSHOT_SCHEMA,
 )
-from ghidra_manager.coverage.reporting import (
-    build_diff,
-    build_report,
-    markdown_diff,
-    markdown_report,
-)
+from ghidra_manager.coverage.rendering import markdown_report
+from ghidra_manager.coverage.reporting import build_report
 
 
 def inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -95,7 +92,6 @@ def test_report_separates_traceability_coverage_and_behavioral_units() -> None:
     assert report["metrics"]["conservative_coverage"]["ratio"] == 0.5
     assert report["metrics"]["coverage_ceiling"]["ratio"] == 1.0
     assert report["metrics"]["instruction_weighted"]["conservative_coverage"]["ratio"] == 0.25
-    assert report["metrics"]["behavioral_units_by_subsystem"]["scripts"]["missing"] == 1
     assert report["metrics"]["behavioral_coverage"]["conservative_coverage"] == {
         "numerator": 0,
         "denominator": 1,
@@ -178,15 +174,15 @@ def test_report_treats_player_scenarios_as_reviewed_coverage_units() -> None:
 
     report = build_report(profile, ledger, snapshot, evidence)
 
-    assert report["metrics"]["critical_scenarios"]["conservative_coverage"] == {
+    assert report["metrics"]["player_scenarios"]["conservative_coverage"] == {
         "numerator": 1,
         "denominator": 1,
         "ratio": 1.0,
     }
-    assert report["metrics"]["critical_scenarios"]["verified"]["ratio"] == 1.0
-    assert report["critical_scenarios"][0]["label"] == "Start a new game"
+    assert report["metrics"]["player_scenarios"]["verified"]["ratio"] == 1.0
+    assert report["player_scenarios"][0]["label"] == "Start a new game"
     markdown = markdown_report(report)
-    assert "## Critical Player Scenarios" in markdown
+    assert "## Player Scenarios" in markdown
     assert "The player can begin the game." in markdown
 
 
@@ -271,6 +267,54 @@ def test_report_exposes_assessment_and_evidence_readiness() -> None:
     assert "## Executive Summary" in markdown
     assert "## Assessment Readiness" in markdown
     assert "## Evidence Readiness" in markdown
+
+
+def test_evidence_readiness_does_not_require_seeded_function_records() -> None:
+    profile, _ledger, snapshot, evidence = inputs()
+    evidence["facts"] = [
+        {
+            "id": "source:1",
+            "kind": "source_anchor",
+            "claim": "mapped",
+            "original_targets": ["fn:1"],
+            "implementation_targets": [{"path": "engine/demo.cpp"}],
+        }
+    ]
+    empty_ledger = {
+        "schema": LEDGER_SCHEMA,
+        "version": SCHEMA_VERSION,
+        "profile_id": "demo",
+        "records": [],
+    }
+
+    report = build_report(profile, empty_ledger, snapshot, evidence)
+
+    assert report["evidence_summary"]["linked_functions"] == 1
+    assert report["assessment"]["review_readiness"] == {
+        "numerator": 0,
+        "denominator": 3,
+        "ratio": 0.0,
+    }
+
+
+def test_not_applicable_record_is_not_double_counted_as_excluded() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"].append(
+        {
+            "id": "fn:3",
+            "kind": "function",
+            "scope": {"state": "out_of_scope"},
+            "status": "not_applicable",
+            "exclusion_reason": "Compiler runtime",
+            "verification": {"state": "unverified"},
+            "evidence": [],
+        }
+    )
+
+    report = build_report(profile, ledger, snapshot, evidence)
+
+    assert report["inventory"]["excluded"] == 1
+    assert report["inventory"]["not_applicable"] == 1
 
 
 def test_report_does_not_describe_unreviewed_state_as_no_gaps() -> None:
