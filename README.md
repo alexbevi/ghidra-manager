@@ -575,10 +575,18 @@ priority but leaves the suggestion `unknown`. Seed never suggests `complete`,
 deterministic evidence, diagnostic, and reachability factors so review can
 begin with the strongest mappings.
 
-Reports distinguish function traceability, conservative reviewed coverage,
-the partial-inclusive coverage ceiling, behavioral-unit status, verification
-state, and instruction-weighted views. A stored snapshot supports scanning and
-report regeneration without a live Ghidra instance:
+Reports lead with assessment readiness and evidence quality before showing any
+coverage ratio. When no in-scope denominator has been reviewed, the Markdown
+report says that implementation coverage and gap analysis are unavailable
+instead of presenting `0 / 0` as a result. If a current review queue exists,
+the report includes its suggested in-scope count, confidence distribution, and
+subsystem backlog. Evidence-link counts remain traceability signals rather than
+completion claims.
+
+The engineering section distinguishes function traceability, conservative
+reviewed coverage, the partial-inclusive coverage ceiling, behavioral-unit
+status, verification state, and instruction-weighted views. A stored snapshot
+supports scanning and report regeneration without a live Ghidra instance:
 
 ```bash
 ghidra-manager coverage scan \

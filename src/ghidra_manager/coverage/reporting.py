@@ -30,6 +30,7 @@ def build_report(
     ledger: dict[str, Any],
     snapshot: dict[str, Any],
     evidence: dict[str, Any],
+    review_queue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     records = [item for item in ledger.get("records", []) if isinstance(item, dict)]
     in_scope = [
@@ -115,6 +116,41 @@ def build_report(
         for item in evidence.get("behavioral_units", [])
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
+    function_record_ids = {
+        str(item["id"])
+        for item in records
+        if item.get("kind") == "function" and isinstance(item.get("id"), str)
+    }
+    behavioral_records = [
+        item for item in records if item.get("kind") == "behavioral_unit"
+    ]
+    reviewed_records = len(in_scope) + len(out_of_scope)
+    candidates = [
+        item
+        for item in (review_queue or {}).get("candidates", [])
+        if isinstance(item, dict)
+    ]
+    candidate_confidence = Counter(
+        str(item.get("confidence", "unknown")) for item in candidates
+    )
+    candidate_subsystems = Counter(
+        str(item.get("subsystem", "unassigned")) for item in candidates
+    )
+    facts = [
+        item for item in evidence.get("facts", []) if isinstance(item, dict)
+    ]
+    linked_function_ids = {
+        str(target)
+        for fact in facts
+        for target in fact.get("original_targets", [])
+        if isinstance(target, str) and target in function_record_ids
+    }
+    implementation_paths = {
+        str(target["path"])
+        for fact in facts
+        for target in fact.get("implementation_targets", [])
+        if isinstance(target, dict) and isinstance(target.get("path"), str)
+    }
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "version": SCHEMA_VERSION,
@@ -129,7 +165,7 @@ def build_report(
             "functions": len(snapshot.get("functions", [])),
             "behavioral_units": len(evidence.get("behavioral_units", [])),
             "ledger_records": len(records),
-            "scope_reviewed": len(in_scope) + len(out_of_scope),
+            "scope_reviewed": reviewed_records,
             "scope_unreviewed": len(inventory_function_ids - reviewed_function_ids)
             + sum(item.get("kind") != "function" for item in unreviewed),
             "behavioral_units_unreviewed": len(
@@ -137,6 +173,49 @@ def build_report(
             ),
             "excluded": len(out_of_scope)
             + sum(item.get("status") == "not_applicable" for item in records),
+        },
+        "assessment": {
+            "review_readiness": _ratio(reviewed_records, len(records)),
+            "functions": {
+                "reviewed": len(reviewed_function_ids),
+                "unreviewed": len(function_record_ids - reviewed_function_ids),
+                "total": len(function_record_ids),
+            },
+            "behavioral_units": {
+                "reviewed": len(reviewed_behavioral_ids),
+                "unreviewed": len(behavioral_records)
+                - len(reviewed_behavioral_ids),
+                "total": len(behavioral_records),
+            },
+            "review_queue": {
+                "available": review_queue is not None,
+                "candidates": len(candidates),
+                "suggested_in_scope": sum(
+                    item.get("suggested_scope") == "in_scope"
+                    for item in candidates
+                ),
+                "confidence_distribution": dict(
+                    sorted(candidate_confidence.items())
+                ),
+                "candidates_by_subsystem": dict(
+                    sorted(candidate_subsystems.items())
+                ),
+            },
+        },
+        "evidence_summary": {
+            "facts": len(facts),
+            "fact_kind_distribution": dict(
+                sorted(Counter(str(item.get("kind", "unknown")) for item in facts).items())
+            ),
+            "claim_distribution": dict(
+                sorted(Counter(str(item.get("claim", "unknown")) for item in facts).items())
+            ),
+            "linked_functions": len(linked_function_ids),
+            "unresolved_anchors": sum(
+                isinstance(item.get("unresolved_original"), dict) for item in facts
+            ),
+            "implementation_paths": len(implementation_paths),
+            "behavioral_units": len(evidence.get("behavioral_units", [])),
         },
         "metrics": {
             "function_traceability": _ratio(linked, len(in_scope_functions)),
@@ -191,6 +270,7 @@ def build_report(
 
 def markdown_report(report: dict[str, Any]) -> str:
     metrics = report["metrics"]
+    assessment = report["assessment"]
 
     def metric(name: str) -> str:
         value = metrics[name]
@@ -205,24 +285,93 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Evidence: `{report['inputs']['evidence_scan_id']}`",
         f"- Repository revision: `{report['inputs']['repository_revision']}`",
         "",
-        "## Metrics",
-        "",
-        f"- Function traceability: {metric('function_traceability')}",
-        f"- Conservative implementation coverage: {metric('conservative_coverage')}",
-        f"- Coverage ceiling: {metric('coverage_ceiling')}",
-        f"- Scope-unreviewed functions/records: {report['inventory']['scope_unreviewed']}",
-        f"- Unreviewed behavioral units: "
-        f"{report['inventory']['behavioral_units_unreviewed']}",
-        f"- Excluded/not applicable: {report['inventory']['excluded']}",
-        "",
-        "These metrics separate evidence linkage, reviewed implementation status, "
-        "and verification.",
-        "The coverage ceiling treats partial records as an upper bound, not completed behavior.",
-        "Instruction-weighted views measure code size, not behavioral importance.",
-        "",
-        "### Reviewed Status Distribution",
+        "## Executive Summary",
         "",
     ]
+    if metrics["conservative_coverage"]["denominator"]:
+        lines.extend(
+            [
+                f"- Conservative implementation coverage: "
+                f"{metric('conservative_coverage')}",
+                f"- Coverage ceiling: {metric('coverage_ceiling')}",
+            ]
+        )
+    else:
+        lines.append(
+            "- Implementation coverage cannot yet be estimated because no "
+            "in-scope functions have been reviewed."
+        )
+    lines.extend(
+        [
+            f"- Assessment readiness: "
+            f"{assessment['review_readiness']['numerator']} / "
+            f"{assessment['review_readiness']['denominator']} reviewed",
+            f"- Behavioral-unit review: "
+            f"{assessment['behavioral_units']['reviewed']} / "
+            f"{assessment['behavioral_units']['total']} reviewed",
+            "",
+            "Completion, evidence linkage, and verification are separate claims.",
+            "",
+            "## Assessment Readiness",
+            "",
+            f"- Function records: {assessment['functions']['reviewed']} reviewed; "
+            f"{assessment['functions']['unreviewed']} unreviewed",
+            f"- Behavioral units: {assessment['behavioral_units']['reviewed']} reviewed; "
+            f"{assessment['behavioral_units']['unreviewed']} unreviewed",
+            f"- Excluded/not applicable: {report['inventory']['excluded']}",
+        ]
+    )
+    queue = assessment["review_queue"]
+    if queue["available"]:
+        confidence = ", ".join(
+            f"{key}={value}"
+            for key, value in sorted(queue["confidence_distribution"].items())
+        ) or "none"
+        lines.extend(
+            [
+                f"- Advisory review queue: {queue['candidates']} candidates; "
+                f"{queue['suggested_in_scope']} suggested in-scope",
+                f"- Candidate confidence: {confidence}",
+            ]
+        )
+    else:
+        lines.append("- Advisory review queue: unavailable")
+    evidence = report["evidence_summary"]
+    fact_kinds = ", ".join(
+        f"{key}={value}"
+        for key, value in sorted(evidence["fact_kind_distribution"].items())
+    ) or "none"
+    lines.extend(
+        [
+            "",
+            "## Evidence Readiness",
+            "",
+            f"- Evidence facts: {evidence['facts']} ({fact_kinds})",
+            f"- Evidence-linked original functions: {evidence['linked_functions']}",
+            f"- Reimplementation paths referenced: {evidence['implementation_paths']}",
+            f"- Unresolved original anchors: {evidence['unresolved_anchors']}",
+            f"- Discovered behavioral units: {evidence['behavioral_units']}",
+            "",
+            "Evidence indicates traceability and review readiness; it does not establish "
+            "implementation completeness.",
+            "",
+            "## Engineering Metrics",
+            "",
+            f"- Function traceability: {metric('function_traceability')}",
+            f"- Conservative implementation coverage: {metric('conservative_coverage')}",
+            f"- Coverage ceiling: {metric('coverage_ceiling')}",
+            f"- Scope-unreviewed functions/records: "
+            f"{report['inventory']['scope_unreviewed']}",
+            f"- Unreviewed behavioral units: "
+            f"{report['inventory']['behavioral_units_unreviewed']}",
+            "The coverage ceiling treats partial records as an upper bound, not "
+            "completed behavior.",
+            "Instruction-weighted views measure code size, not behavioral importance.",
+            "",
+            "### Reviewed Status Distribution",
+            "",
+        ]
+    )
     status_distribution = metrics["status_distribution"]
     if status_distribution:
         lines.extend(
@@ -254,7 +403,12 @@ def markdown_report(report: dict[str, Any]) -> str:
         ]
     )
     if not report["gaps"]:
-        lines.append("No reviewed in-scope gaps.")
+        if report["inventory"]["scope_reviewed"]:
+            lines.append("No gaps are recorded among reviewed in-scope records.")
+        else:
+            lines.append(
+                "Gap analysis is unavailable because no records have a reviewed scope."
+            )
     else:
         lines.extend(
             f"- `{gap['id']}` — {gap['status']}; reachability={gap['reachability']}; "

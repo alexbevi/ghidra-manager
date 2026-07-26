@@ -617,7 +617,10 @@ class CoverageService:
             raise ManagerError("Coverage profile has no applied snapshot/evidence scan")
         snapshot = load_json(paths.snapshots / _id_filename(str(active["snapshot"])))
         evidence = load_json(paths.evidence / _id_filename(str(active["evidence"])))
-        value = build_report(profile, ledger, snapshot, evidence)
+        review_queue = (
+            load_json(paths.review_queue) if paths.review_queue.is_file() else None
+        )
+        value = build_report(profile, ledger, snapshot, evidence, review_queue)
         output_json = (json_path or paths.reports / "latest.json").expanduser().resolve()
         output_markdown = (
             markdown_path or paths.reports / "latest.md"

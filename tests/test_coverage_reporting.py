@@ -98,6 +98,90 @@ def test_report_separates_traceability_coverage_and_behavioral_units() -> None:
     assert "Verification Distribution" in markdown
 
 
+def test_report_exposes_assessment_and_evidence_readiness() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"].append(
+        {
+            "id": "fn:3",
+            "kind": "function",
+            "scope": {"state": "unreviewed"},
+            "status": "unknown",
+            "verification": {"state": "unverified"},
+            "evidence": [],
+        }
+    )
+    evidence["facts"].append(
+        {
+            "id": "source:1",
+            "kind": "source_anchor",
+            "claim": "mapped",
+            "original_targets": ["fn:1"],
+            "implementation_targets": [{"path": "engine/demo.cpp"}],
+            "unresolved_original": None,
+        }
+    )
+    evidence["facts"].append(
+        {
+            "id": "source:2",
+            "kind": "source_anchor",
+            "claim": "mentioned",
+            "original_targets": [],
+            "implementation_targets": [{"path": "engine/demo.cpp"}],
+            "unresolved_original": {"name": "Missing", "address": "0x1234"},
+        }
+    )
+    queue = {
+        "candidates": [
+            {
+                "record_id": "fn:3",
+                "suggested_scope": "in_scope",
+                "confidence": "high",
+                "subsystem": "scripts",
+            }
+        ]
+    }
+
+    report = build_report(profile, ledger, snapshot, evidence, queue)
+
+    assert report["assessment"]["review_readiness"] == {
+        "numerator": 3,
+        "denominator": 4,
+        "ratio": 0.75,
+    }
+    assert report["assessment"]["review_queue"]["suggested_in_scope"] == 1
+    assert report["evidence_summary"]["linked_functions"] == 1
+    assert report["evidence_summary"]["unresolved_anchors"] == 1
+    markdown = markdown_report(report)
+    assert "## Executive Summary" in markdown
+    assert "## Assessment Readiness" in markdown
+    assert "## Evidence Readiness" in markdown
+
+
+def test_report_does_not_describe_unreviewed_state_as_no_gaps() -> None:
+    profile, _ledger, snapshot, evidence = inputs()
+    ledger = {
+        "schema": LEDGER_SCHEMA,
+        "version": SCHEMA_VERSION,
+        "profile_id": "demo",
+        "records": [
+            {
+                "id": "fn:1",
+                "kind": "function",
+                "scope": {"state": "unreviewed"},
+                "status": "unknown",
+                "verification": {"state": "unverified"},
+                "evidence": [],
+            }
+        ],
+    }
+
+    report = build_report(profile, ledger, snapshot, evidence)
+    markdown = markdown_report(report)
+
+    assert "Implementation coverage cannot yet be estimated" in markdown
+    assert "Gap analysis is unavailable" in markdown
+
+
 def test_diff_distinguishes_resolved_reopened_and_evidence_only_changes() -> None:
     profile, ledger, snapshot, evidence = inputs()
     base = build_report(profile, ledger, snapshot, evidence)
