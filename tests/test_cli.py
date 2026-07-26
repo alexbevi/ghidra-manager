@@ -297,3 +297,92 @@ def test_compare_apply_argument(monkeypatch, tmp_path) -> None:  # type: ignore[
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
     assert cli.run(["compare", "--apply", str(plan)]) == 0
+
+
+def test_coverage_init_defaults_to_ignored_reports_directory(
+    monkeypatch, tmp_path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    repository = tmp_path / "repo"
+    expected = repository / "reports" / "coverage" / "profile.json"
+
+    class FakeCoverage:
+        def init(self, **values: object) -> Path:
+            assert values == {
+                "repository": repository,
+                "profile_path": None,
+                "adapter": "scummvm",
+                "project": "ripper",
+                "program": "/RIPPER.LE",
+                "scope": "engines/ripper",
+                "architecture": "RIPPER-ARCHITECTURE.md",
+                "base_port": 8089,
+            }
+            return expected
+
+    class FakeManager:
+        def coverage_service(self) -> FakeCoverage:
+            return FakeCoverage()
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(
+            [
+                "coverage",
+                "init",
+                "--repository",
+                str(repository),
+                "--adapter",
+                "scummvm",
+                "--project",
+                "ripper",
+                "--program",
+                "/RIPPER.LE",
+                "--scope",
+                "engines/ripper",
+            ]
+        )
+        == 0
+    )
+    assert f"Coverage workspace initialized: {expected.parent}" in capsys.readouterr().out
+
+
+def test_coverage_scan_emits_reviewable_plan(monkeypatch, tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    profile = tmp_path / "reports" / "coverage" / "profile.json"
+    plan = tmp_path / "reports" / "coverage" / "plans" / "plan.json"
+
+    class FakeCoverage:
+        def scan(
+            self,
+            value: Path,
+            *,
+            offline_snapshot: str | None,
+            allow_dirty: bool,
+        ) -> Path:
+            assert value == profile
+            assert offline_snapshot == "sha256:snapshot"
+            assert not allow_dirty
+            return plan
+
+    class FakeManager:
+        def coverage_service(self) -> FakeCoverage:
+            return FakeCoverage()
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(
+            [
+                "coverage",
+                "scan",
+                "--profile",
+                str(profile),
+                "--offline-snapshot",
+                "sha256:snapshot",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert f"Coverage plan saved: {plan}" in output
+    assert "No canonical inputs changed" in output

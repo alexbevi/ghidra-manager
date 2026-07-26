@@ -106,6 +106,64 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--base-port", type=_base_port)
     compare.add_argument("--apply", type=str)
     compare.add_argument("projects", nargs="*")
+    coverage = commands.add_parser(
+        "coverage", help="Track reimplementation evidence and reviewed coverage"
+    )
+    coverage_commands = coverage.add_subparsers(dest="coverage_command", required=True)
+    coverage_init = coverage_commands.add_parser(
+        "init", help="Create an ignored coverage workspace"
+    )
+    coverage_init.add_argument("--repository", type=Path, default=Path.cwd())
+    coverage_init.add_argument("--profile", type=Path)
+    coverage_init.add_argument("--adapter", required=True)
+    coverage_init.add_argument("--project", required=True)
+    coverage_init.add_argument("--program", required=True)
+    coverage_init.add_argument("--scope", required=True)
+    coverage_init.add_argument("--architecture")
+    coverage_init.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
+    coverage_scan = coverage_commands.add_parser(
+        "scan", help="Create a retained evidence scan plan"
+    )
+    coverage_scan.add_argument(
+        "--profile", type=Path, default=Path("reports/coverage/profile.json")
+    )
+    coverage_scan.add_argument("--offline-snapshot")
+    coverage_scan.add_argument("--allow-dirty", action="store_true")
+    coverage_validate = coverage_commands.add_parser(
+        "validate", help="Validate coverage inputs"
+    )
+    coverage_validate.add_argument(
+        "--profile", type=Path, default=Path("reports/coverage/profile.json")
+    )
+    coverage_report = coverage_commands.add_parser(
+        "report", help="Generate deterministic JSON and Markdown reports"
+    )
+    coverage_report.add_argument(
+        "--profile", type=Path, default=Path("reports/coverage/profile.json")
+    )
+    coverage_report.add_argument("--json", type=Path)
+    coverage_report.add_argument("--markdown", type=Path)
+    coverage_diff = coverage_commands.add_parser(
+        "diff", help="Compare two canonical coverage reports"
+    )
+    coverage_diff.add_argument("base", type=Path)
+    coverage_diff.add_argument("head", type=Path)
+    coverage_diff.add_argument("--json", type=Path, required=True)
+    coverage_diff.add_argument("--markdown", type=Path, required=True)
+    coverage_plans = coverage_commands.add_parser(
+        "plans", help="List retained coverage plans"
+    )
+    coverage_plans.add_argument(
+        "--profile", type=Path, default=Path("reports/coverage/profile.json")
+    )
+    coverage_apply = coverage_commands.add_parser(
+        "apply", help="Apply a retained coverage plan"
+    )
+    coverage_apply.add_argument("plan", type=Path)
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
@@ -260,6 +318,78 @@ def run(argv: Sequence[str] | None = None) -> int:
             build_parser().error("compare requires SOURCE_PROJECT and TARGET_PROJECT")
         base_port = args.base_port or int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT))
         return manager.compare(args.projects[0], args.projects[1], base_port=base_port)
+    if args.command == "coverage":
+        service = Manager.discover().coverage_service()
+        if args.coverage_command == "init":
+            architecture = args.architecture
+            if architecture is None and args.adapter == "scummvm":
+                architecture = "RIPPER-ARCHITECTURE.md"
+            profile = service.init(
+                repository=args.repository,
+                profile_path=args.profile,
+                adapter=args.adapter,
+                project=args.project,
+                program=args.program,
+                scope=args.scope,
+                architecture=architecture,
+                base_port=args.base_port,
+            )
+            print(f"Coverage workspace initialized: {profile.parent}")
+            print(f"Profile: {profile}")
+            return 0
+        if args.coverage_command == "scan":
+            plan = service.scan(
+                args.profile,
+                offline_snapshot=args.offline_snapshot,
+                allow_dirty=args.allow_dirty,
+            )
+            print(f"Coverage plan saved: {plan}")
+            print("No canonical inputs changed. Review the plan, then apply it with:")
+            print(f"  ghidra-manager coverage apply {plan}")
+            return 0
+        if args.coverage_command == "validate":
+            errors = service.validate(args.profile)
+            if errors:
+                for error in errors:
+                    print(f"ERROR: {error}")
+                return 1
+            print(f"Coverage inputs valid: {args.profile}")
+            return 0
+        if args.coverage_command == "report":
+            json_path, markdown_path = service.report(
+                args.profile,
+                json_path=args.json,
+                markdown_path=args.markdown,
+            )
+            print(f"Coverage JSON: {json_path}")
+            print(f"Coverage Markdown: {markdown_path}")
+            return 0
+        if args.coverage_command == "diff":
+            json_path, markdown_path = service.diff(
+                args.base,
+                args.head,
+                json_path=args.json,
+                markdown_path=args.markdown,
+            )
+            print(f"Coverage diff JSON: {json_path}")
+            print(f"Coverage diff Markdown: {markdown_path}")
+            return 0
+        if args.coverage_command == "plans":
+            plans = service.plans(args.profile)
+            if not plans:
+                print("No retained coverage plans.")
+            for plan_record in plans:
+                state = "current" if plan_record.get("current") else "stale"
+                print(
+                    f"{state} | {plan_record['path']} | "
+                    f"{plan_record.get('plan_id', 'invalid')}"
+                )
+            return 0
+        if args.coverage_command == "apply":
+            for line in service.apply(args.plan):
+                print(line)
+            return 0
+        raise AssertionError(f"Unhandled coverage command: {args.coverage_command}")
     if args.command == "instances":
         Manager.discover().require_mcp()
         return _instances(args.base_port)

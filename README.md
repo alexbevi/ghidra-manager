@@ -49,6 +49,7 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
+| `ghidra-manager coverage COMMAND` | `init`, `scan`, `validate`, `report`, `diff`, `plans`, `apply` | `Coverage plan saved: <repository>/reports/coverage/plans/<plan>.json` |
 | `ghidra-manager instances` | `--base-port PORT` | `MCP port 8089` |
 
 `launch` and `bridge` deliberately pass remaining arguments through rather than
@@ -226,6 +227,7 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 ├── gradle-cache/
 ├── launch-logs/
 ├── compare-plans/
+├── coverage/blobs/
 ├── python/
 └── uv-cache/
 ```
@@ -505,6 +507,78 @@ unsaved in Ghidra for review or undo.
 `compare` requires two distinct responding project instances. For two programs
 inside one project, use the full-path MCP workflow in the RIPPER example instead
 of trying to launch the same project twice.
+
+## Track Reimplementation Coverage
+
+Coverage tracking relates a Ghidra-analyzed source binary to an external
+reimplementation without treating a function mention or commit message as
+proof of completed behavior. Generated evidence and human-reviewed coverage
+statuses remain separate, and no coverage command mutates a Ghidra program.
+
+Initialize a local coverage workspace from the reimplementation checkout:
+
+```bash
+ghidra-manager coverage init \
+  --repository /path/to/scummvm \
+  --adapter scummvm \
+  --project ripper \
+  --program /RIPPER.LE \
+  --scope engines/ripper
+```
+
+The default workspace is `reports/coverage/` inside that repository. The
+command adds `/reports/coverage/` to the checkout's local
+`.git/info/exclude`; it does not edit the tracked `.gitignore`. Profiles,
+reviewed ledgers, snapshots, evidence, retained plans, and reports stay local
+and uncommitted. The manager home contains only disposable content-addressed
+scan payloads.
+
+With the exact project and program open, create a read-only scan plan:
+
+```bash
+ghidra-manager coverage scan
+ghidra-manager coverage plans
+ghidra-manager coverage apply reports/coverage/plans/<plan>.json
+```
+
+`scan` reads the program, Git history, source comments, architecture anchors,
+and adapter registries. It refuses a dirty reimplementation checkout unless
+`--allow-dirty` is supplied. A dirty scan records the tracked diff and included
+untracked-file content in its repository fingerprint.
+
+Applying a plan rechecks the profile, reviewed ledger, repository revision and
+content, snapshot identity, and live Ghidra program when the scan was live.
+Apply publishes immutable snapshot/evidence files and updates active pointers,
+but never changes `ledger.json`. Reviewers edit that JSON ledger manually and
+validate it:
+
+```bash
+ghidra-manager coverage validate
+ghidra-manager coverage report
+```
+
+Reports distinguish function traceability, conservative reviewed coverage,
+the partial-inclusive coverage ceiling, behavioral-unit status, verification
+state, and instruction-weighted views. A stored snapshot supports scanning and
+report regeneration without a live Ghidra instance:
+
+```bash
+ghidra-manager coverage scan \
+  --offline-snapshot sha256:<snapshot-id>
+```
+
+Compare two canonical reports explicitly:
+
+```bash
+ghidra-manager coverage diff base.json head.json \
+  --json coverage-diff.json \
+  --markdown coverage-diff.md
+```
+
+The initial ScummVM adapter recognizes RIPPER function/address anchors, script
+opcodes, scene actions, architecture references, and unsupported diagnostics.
+Those observations seed evidence only. `complete`, `partial`, `equivalent`,
+`missing`, `not_applicable`, and verification states are reviewer decisions.
 
 ## Validation
 

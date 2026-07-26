@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ghidra_manager import compare as compare_engine
 from ghidra_manager.config import ManagerPaths
+from ghidra_manager.coverage import CoverageService
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
 from ghidra_manager.mcp import (
@@ -812,6 +813,12 @@ class Manager:
                 str(COMPARE_PLAN_RETENTION),
                 str(plan),
             ]
+        )
+
+    def coverage_service(self) -> CoverageService:
+        return CoverageService(
+            self.paths,
+            instance_discovery=self.instance_discovery,
         )
 
     def _require_active_pair(self) -> PairMetadata:
