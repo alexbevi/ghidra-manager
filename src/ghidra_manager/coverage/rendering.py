@@ -215,6 +215,7 @@ def _append_evidence_and_engineering(
             f"- Evidence-linked original functions: {evidence['linked_functions']}",
             f"- Reimplementation paths referenced: {evidence['implementation_paths']}",
             f"- Unresolved original anchors: {evidence['unresolved_anchors']}",
+            f"- Stale ledger evidence references: {evidence['stale_references']}",
             f"- Discovered behavioral units: {evidence['behavioral_units']}",
             "",
             "Evidence indicates traceability and review readiness; it does not establish "

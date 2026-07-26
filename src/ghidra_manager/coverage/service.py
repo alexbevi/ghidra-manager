@@ -193,11 +193,30 @@ class CoverageService:
                         for item in evidence.get("facts", [])
                         if isinstance(item, dict) and isinstance(item.get("id"), str)
                     }
+                    historical_fact_ids = set(fact_ids)
+                    for historical_path in sorted(paths.evidence.glob("*.json")):
+                        if historical_path == evidence_path:
+                            continue
+                        try:
+                            historical = load_json(historical_path)
+                            require_schema(
+                                historical,
+                                EVIDENCE_SCHEMA,
+                                path=historical_path,
+                            )
+                        except ManagerError:
+                            continue
+                        historical_fact_ids.update(
+                            str(item["id"])
+                            for item in historical.get("facts", [])
+                            if isinstance(item, dict)
+                            and isinstance(item.get("id"), str)
+                        )
                     for record in ledger.get("records", []):
                         if not isinstance(record, dict):
                             continue
                         for reference in record.get("evidence", []):
-                            if reference not in fact_ids:
+                            if reference not in historical_fact_ids:
                                 errors.append(
                                     f"{record.get('id')}: unknown evidence reference {reference}"
                                 )

@@ -341,3 +341,49 @@ def test_seed_apply_rejects_ledger_changes_after_plan_creation(tmp_path: Path) -
 
     with pytest.raises(ManagerError, match="ledger changed since plan creation"):
         service.apply(seed_plan)
+
+
+def test_new_scan_allows_seed_to_refresh_historical_evidence(tmp_path: Path) -> None:
+    service, paths, repository, snapshot = initialized_service(tmp_path)
+    first_scan = service.scan(
+        paths.profile,
+        offline_snapshot=str(snapshot["snapshot_id"]),
+        allow_dirty=False,
+    )
+    service.apply(first_scan)
+    first_seed = service.seed(paths.profile)
+    service.apply(first_seed)
+    ledger = load_json(paths.ledger)
+    function = next(
+        record for record in ledger["records"] if record["kind"] == "function"
+    )
+    historical_references = set(function["evidence"])
+
+    source = repository / "engines" / "ripper" / "script.h"
+    source.write_text(
+        source.read_text().replace("OriginalNoOp at 0x1000", "OriginalNoOp @ 0x1000"),
+        encoding="utf-8",
+    )
+    second_scan = service.scan(
+        paths.profile,
+        offline_snapshot=str(snapshot["snapshot_id"]),
+        allow_dirty=True,
+    )
+    service.apply(second_scan)
+
+    assert service.validate(paths.profile) == []
+    second_seed = service.seed(paths.profile)
+    service.apply(second_seed)
+
+    updated = load_json(paths.ledger)
+    refreshed = next(
+        record for record in updated["records"] if record["id"] == function["id"]
+    )
+    active_evidence_id = str(load_json(paths.profile)["active"]["evidence"])
+    active_evidence = load_json(
+        paths.evidence / f"{active_evidence_id.removeprefix('sha256:')}.json"
+    )
+    active_fact_ids = {fact["id"] for fact in active_evidence["facts"]}
+    assert set(refreshed["evidence"]) <= active_fact_ids
+    assert (historical_references - active_fact_ids).isdisjoint(refreshed["evidence"])
+    assert service.validate(paths.profile) == []

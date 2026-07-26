@@ -559,6 +559,12 @@ ghidra-manager coverage validate
 ghidra-manager coverage report
 ```
 
+After a later scan, retained evidence links may refer to the prior immutable
+evidence file. Validation accepts those historical references, reports them as
+stale rather than current traceability, and lets `seed` replace generated links
+on still-unreviewed records. Reviewed records remain untouched so rescanning
+cannot silently rewrite their supporting evidence.
+
 `seed` automates the ledger bookkeeping after a scan has been applied. It
 creates a retained plan that adds missing functions and behavioral units as
 `unreviewed`/`unknown`, attaches exact generated evidence to functions, and

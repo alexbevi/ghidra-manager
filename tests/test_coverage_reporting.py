@@ -37,7 +37,16 @@ def inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, 
             "revision": "abc",
             "content_fingerprint": "sha256:repo",
         },
-        "facts": [{"id": "diagnostic:1", "kind": "diagnostic"}],
+        "facts": [
+            {"id": "diagnostic:1", "kind": "diagnostic"},
+            {
+                "id": "evidence:1",
+                "kind": "source_anchor",
+                "claim": "mapped",
+                "original_targets": ["fn:1"],
+                "implementation_targets": [{"path": "engine/demo.cpp"}],
+            },
+        ],
         "behavioral_units": [],
     }
     ledger = {
@@ -263,10 +272,21 @@ def test_report_exposes_assessment_and_evidence_readiness() -> None:
     assert report["assessment"]["review_queue"]["suggested_in_scope"] == 1
     assert report["evidence_summary"]["linked_functions"] == 1
     assert report["evidence_summary"]["unresolved_anchors"] == 1
+    assert report["evidence_summary"]["stale_references"] == 0
     markdown = markdown_report(report)
     assert "## Executive Summary" in markdown
     assert "## Assessment Readiness" in markdown
     assert "## Evidence Readiness" in markdown
+
+
+def test_stale_evidence_does_not_count_as_current_traceability() -> None:
+    profile, ledger, snapshot, evidence = inputs()
+    ledger["records"][0]["evidence"] = ["evidence:historical"]
+
+    report = build_report(profile, ledger, snapshot, evidence)
+
+    assert report["metrics"]["function_traceability"]["numerator"] == 0
+    assert report["evidence_summary"]["stale_references"] == 1
 
 
 def test_evidence_readiness_does_not_require_seeded_function_records() -> None:

@@ -317,9 +317,7 @@ def build_seed(
         current_scope = current.get("scope", {})
         if isinstance(current_scope, dict) and current_scope.get("state") == "unreviewed":
             updated = dict(current)
-            updated["evidence"] = sorted(
-                set(generated.get("evidence", [])) | set(current.get("evidence", []))
-            )
+            updated["evidence"] = list(generated.get("evidence", []))
             if current.get("reachability", "unknown") == "unknown":
                 updated["reachability"] = generated["reachability"]
             if current.get("subsystem") in {None, "", "unassigned"}:

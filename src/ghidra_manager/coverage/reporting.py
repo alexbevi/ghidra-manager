@@ -154,7 +154,6 @@ def build_report(
     verification = Counter(
         str(item.get("verification", {}).get("state", "unverified")) for item in in_scope
     )
-    linked = sum(bool(item.get("evidence")) for item in in_scope_functions)
     function_records = in_scope_functions
     function_map = {
         str(item["id"]): item
@@ -273,6 +272,19 @@ def build_report(
     facts = [
         item for item in evidence.get("facts", []) if isinstance(item, dict)
     ]
+    active_fact_ids = {
+        str(item["id"]) for item in facts if isinstance(item.get("id"), str)
+    }
+    stale_evidence_references = {
+        str(reference)
+        for record in records
+        for reference in record.get("evidence", [])
+        if isinstance(reference, str) and reference not in active_fact_ids
+    }
+    linked = sum(
+        bool(set(item.get("evidence", [])) & active_fact_ids)
+        for item in in_scope_functions
+    )
     linked_function_ids = {
         str(target)
         for fact in facts
@@ -353,6 +365,7 @@ def build_report(
             ),
             "implementation_paths": len(implementation_paths),
             "behavioral_units": len(evidence.get("behavioral_units", [])),
+            "stale_references": len(stale_evidence_references),
         },
         "metrics": {
             "function_traceability": _ratio(linked, len(in_scope_functions)),

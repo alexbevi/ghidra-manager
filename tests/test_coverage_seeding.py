@@ -208,3 +208,32 @@ def test_same_file_diagnostic_does_not_imply_partial() -> None:
     )
     assert candidate["suggested_status"] == "unknown"
     assert "same source file requires review" in " ".join(candidate["reasons"])
+
+
+def test_seed_replaces_historical_evidence_on_unreviewed_records() -> None:
+    profile, ledger, snapshot, evidence = seed_inputs()
+    ledger["records"].append(
+        {
+            "id": "fn:program:ram:00002000",
+            "kind": "function",
+            "scope": {"state": "unreviewed"},
+            "status": "unknown",
+            "verification": {"state": "unverified", "records": []},
+            "evidence": ["evidence:historical"],
+            "reachability": "unknown",
+        }
+    )
+
+    seeded, _queue, _summary = build_seed(profile, ledger, snapshot, evidence)
+
+    record = next(
+        item
+        for item in seeded["records"]
+        if item["id"] == "fn:program:ram:00002000"
+    )
+    assert "evidence:historical" not in record["evidence"]
+    assert record["evidence"] == [
+        "evidence:commit",
+        "evidence:diagnostic",
+        "evidence:source",
+    ]
