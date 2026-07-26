@@ -92,7 +92,10 @@ def test_report_separates_traceability_coverage_and_behavioral_units() -> None:
     assert report["metrics"]["instruction_weighted"]["conservative_coverage"]["ratio"] == 0.25
     assert report["metrics"]["behavioral_units_by_subsystem"]["scripts"]["missing"] == 1
     assert report["gaps"][0]["id"] == "unit:1"
-    assert "upper bound" in markdown_report(report)
+    markdown = markdown_report(report)
+    assert "upper bound" in markdown
+    assert "Instruction-weighted views measure code size" in markdown
+    assert "Verification Distribution" in markdown
 
 
 def test_diff_distinguishes_resolved_reopened_and_evidence_only_changes() -> None:

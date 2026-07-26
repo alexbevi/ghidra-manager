@@ -104,6 +104,17 @@ def build_report(
         and item.get("scope", {}).get("state") != "unreviewed"
     }
     inventory_function_ids = set(function_map)
+    reviewed_behavioral_ids = {
+        str(item.get("id"))
+        for item in records
+        if item.get("kind") == "behavioral_unit"
+        and item.get("scope", {}).get("state") != "unreviewed"
+    }
+    inventory_behavioral_ids = {
+        str(item["id"])
+        for item in evidence.get("behavioral_units", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "version": SCHEMA_VERSION,
@@ -121,6 +132,9 @@ def build_report(
             "scope_reviewed": len(in_scope) + len(out_of_scope),
             "scope_unreviewed": len(inventory_function_ids - reviewed_function_ids)
             + sum(item.get("kind") != "function" for item in unreviewed),
+            "behavioral_units_unreviewed": len(
+                inventory_behavioral_ids - reviewed_behavioral_ids
+            ),
             "excluded": len(out_of_scope)
             + sum(item.get("status") == "not_applicable" for item in records),
         },
@@ -197,15 +211,48 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Conservative implementation coverage: {metric('conservative_coverage')}",
         f"- Coverage ceiling: {metric('coverage_ceiling')}",
         f"- Scope-unreviewed functions/records: {report['inventory']['scope_unreviewed']}",
+        f"- Unreviewed behavioral units: "
+        f"{report['inventory']['behavioral_units_unreviewed']}",
         f"- Excluded/not applicable: {report['inventory']['excluded']}",
         "",
         "These metrics separate evidence linkage, reviewed implementation status, "
         "and verification.",
         "The coverage ceiling treats partial records as an upper bound, not completed behavior.",
+        "Instruction-weighted views measure code size, not behavioral importance.",
+        "",
+        "### Reviewed Status Distribution",
+        "",
+    ]
+    status_distribution = metrics["status_distribution"]
+    if status_distribution:
+        lines.extend(
+            f"- {status}: {count}"
+            for status, count in sorted(status_distribution.items())
+        )
+    else:
+        lines.append("No in-scope functions have been classified.")
+    lines.extend(
+        [
+            "",
+            "### Verification Distribution",
+            "",
+        ]
+    )
+    verification_distribution = metrics["verification_distribution"]
+    if verification_distribution:
+        lines.extend(
+            f"- {state}: {count}"
+            for state, count in sorted(verification_distribution.items())
+        )
+    else:
+        lines.append("No in-scope records have verification classifications.")
+    lines.extend(
+        [
         "",
         "## Prioritized Gaps",
         "",
-    ]
+        ]
+    )
     if not report["gaps"]:
         lines.append("No reviewed in-scope gaps.")
     else:
@@ -256,6 +303,11 @@ def build_diff(base: dict[str, Any], head: dict[str, Any]) -> dict[str, Any]:
         "head_revision": head["inputs"]["repository_revision"],
         "changes": {
             "added": added,
+            "added_gaps": [
+                identifier
+                for identifier in added
+                if head_records[identifier].get("status") in GAPS
+            ],
             "removed": removed,
             "resolved": resolved,
             "reopened": reopened,
