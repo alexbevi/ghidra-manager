@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("arguments", nargs=argparse.REMAINDER)
     launch_multi = commands.add_parser(
         "launch-multi",
-        help=argparse.SUPPRESS,
+        help="Compatibility alias; prefer open PROJECT [PROJECT ...]",
     )
     launch_multi.add_argument("--count", type=int)
     launch_multi.add_argument(

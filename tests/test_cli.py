@@ -44,7 +44,10 @@ def test_no_arguments_show_help_without_discovery(monkeypatch, capsys) -> None: 
 
 def test_help_command(capsys) -> None:  # type: ignore[no-untyped-def]
     assert cli.run(["help"]) == 0
-    assert "Manage compatible Ghidra and GhidraMCP releases." in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Manage compatible Ghidra and GhidraMCP releases." in output
+    assert "launch-multi        Compatibility alias; prefer open" in output
+    assert "==SUPPRESS==" not in output
 
 
 def test_instances_empty_state(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
