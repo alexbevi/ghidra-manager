@@ -34,7 +34,7 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | Command | Options | Sample output |
 | --- | --- | --- |
 | `ghidra-manager help` | Global: `-h`, `--help` | `usage: ghidra-manager ... {help,sync,status,...}` |
-| `ghidra-manager --version` | None | `ghidra-manager 0.1.0` |
+| `ghidra-manager --version` | None | `ghidra-manager 0.2.0` |
 | `ghidra-manager sync` | `--dry-run` resolves without changing state | `Active pair: Ghidra <version>; plugins ghidra-lx-loader, mcp.` |
 | `ghidra-manager status` | None | `Active Ghidra: <version>` |
 | `ghidra-manager doctor [PROJECT]` | `--program PROGRAM`, `--json`, `--base-port PORT` | `Doctor result: ready` |
