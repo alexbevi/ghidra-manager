@@ -28,7 +28,8 @@ into Codex by the PyPI package.
 
 The examples below abbreviate paths, process IDs, and versions with angle
 brackets. Running `ghidra-manager` without a subcommand is equivalent to
-`ghidra-manager sync`.
+`ghidra-manager help`; installation and updates always require an explicit
+`sync`.
 
 | Command | Options | Sample output |
 | --- | --- | --- |

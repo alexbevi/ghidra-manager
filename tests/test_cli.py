@@ -32,15 +32,14 @@ def test_instances_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyp
     )
 
 
-def test_no_arguments_defaults_to_sync(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    class FakeManager:
-        def sync(self, *, dry_run: bool) -> list[str]:
-            assert not dry_run
-            return []
-
-    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
-
+def test_no_arguments_show_help_without_discovery(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(
+        cli.Manager,
+        "discover",
+        lambda: (_ for _ in ()).throw(AssertionError("manager discovery must not run")),
+    )
     assert cli.run([]) == 0
+    assert "Manage compatible Ghidra and GhidraMCP releases." in capsys.readouterr().out
 
 
 def test_help_command(capsys) -> None:  # type: ignore[no-untyped-def]

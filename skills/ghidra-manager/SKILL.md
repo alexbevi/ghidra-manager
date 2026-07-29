@@ -124,6 +124,8 @@ described above; do not launch the same project twice.
 
 - Never edit `.managed/` or platform user-data homes directly.
 - Never modify a Ghidra installation outside manager state.
+- Treat bare `ghidra-manager` as help; use an explicit `sync` only when the
+  user intends to install or update managed components.
 - Close manager-owned Ghidra processes before `sync` or `rollback`.
 - Preserve stable-release selection, GitHub SHA-256 verification, exact
   extension compatibility, immutable plugin source commits, staged builds,

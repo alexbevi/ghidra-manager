@@ -213,7 +213,7 @@ def _logs(target: str | None, *, lines: int, follow: bool) -> int:
 def run(argv: Sequence[str] | None = None) -> int:
     values = list(argv if argv is not None else sys.argv[1:])
     if not values:
-        values = ["sync"]
+        values = ["help"]
     if values and values[0] in {"launch", "bridge"}:
         args = build_parser().parse_args([values[0]])
         args.arguments = values[1:]
