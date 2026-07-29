@@ -31,7 +31,7 @@ def test_projects_reports_storage_and_active_state(monkeypatch, tmp_path: Path) 
         f"LastOpenedProject=ghidra:{project}.gpr\nRecentProjects={project};{missing}\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("ghidra_manager.manager.ghidra_settings_dir", lambda *_: settings)
+    monkeypatch.setattr("ghidra_manager.runtime.ghidra_settings_dir", lambda *_: settings)
     manager = Manager(
         paths,
         SyncClient(),

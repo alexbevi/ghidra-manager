@@ -34,7 +34,7 @@ def _manager(monkeypatch, tmp_path: Path, instances: list[Instance]) -> Manager:
     (settings / "preferences").write_text(
         f"LastOpenedProject=ghidra:{project}\nRecentProjects=\n", encoding="utf-8"
     )
-    monkeypatch.setattr("ghidra_manager.manager.ghidra_settings_dir", lambda *_: settings)
+    monkeypatch.setattr("ghidra_manager.runtime.ghidra_settings_dir", lambda *_: settings)
     monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
     return Manager(paths, SyncClient(), instance_discovery=lambda _: instances)
 

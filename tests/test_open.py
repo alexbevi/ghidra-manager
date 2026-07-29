@@ -33,7 +33,7 @@ def _manager(monkeypatch, tmp_path: Path, discovery) -> tuple[Manager, Path]:  #
     (settings / "preferences").write_text(
         f"LastOpenedProject=ghidra:{project}\nRecentProjects=\n", encoding="utf-8"
     )
-    monkeypatch.setattr("ghidra_manager.manager.ghidra_settings_dir", lambda *_: settings)
+    monkeypatch.setattr("ghidra_manager.runtime.ghidra_settings_dir", lambda *_: settings)
     return Manager(paths, SyncClient(), instance_discovery=discovery), project
 
 
@@ -64,9 +64,9 @@ def test_open_resolves_recorded_name_and_waits_for_program(monkeypatch, tmp_path
         log.write_text("", encoding="utf-8")
         return Mock(pid=10, poll=lambda: None)
 
-    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
-    monkeypatch.setattr("ghidra_manager.manager.start_ghidra_instance", start)
-    monkeypatch.setattr("ghidra_manager.manager.time.sleep", lambda _: None)
+    monkeypatch.setattr("ghidra_manager.runtime.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.runtime.start_ghidra_instance", start)
+    monkeypatch.setattr("ghidra_manager.runtime.time.sleep", lambda _: None)
 
     lines = manager.open_project("demo", program="DEMO.EXE", timeout=5)
 
@@ -94,8 +94,7 @@ def test_open_projects_routes_multiple_projects_to_verified_multi_launch(
     manager, _ = _manager(monkeypatch, tmp_path, lambda _: [])
     captured: list[list[str]] = []
     monkeypatch.setattr(
-        Manager,
-        "launch_multi",
+        "ghidra_manager.runtime.InstanceService.launch_multi",
         lambda self, projects, **_kwargs: captured.append(projects) or ["ready"],
     )
 
@@ -121,9 +120,9 @@ def test_open_reports_early_exit(monkeypatch, tmp_path: Path) -> None:
         log.write_text("startup failed", encoding="utf-8")
         return Mock(pid=10, poll=lambda: 1)
 
-    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
-    monkeypatch.setattr("ghidra_manager.manager.start_ghidra_instance", start)
-    monkeypatch.setattr("ghidra_manager.manager.time.sleep", lambda _: None)
+    monkeypatch.setattr("ghidra_manager.runtime.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.runtime.start_ghidra_instance", start)
+    monkeypatch.setattr("ghidra_manager.runtime.time.sleep", lambda _: None)
 
     with pytest.raises(ManagerError, match="startup failed"):
         manager.open_project(str(project))
@@ -136,7 +135,7 @@ def test_stop_resolves_project_and_verifies_managed_process(monkeypatch, tmp_pat
     stopped: list[tuple[int, Path, int, bool]] = []
 
     monkeypatch.setattr(
-        "ghidra_manager.manager.stop_managed_ghidra",
+        "ghidra_manager.runtime.stop_managed_ghidra",
         lambda pid, install, *, timeout, force: stopped.append((pid, install, timeout, force)),
     )
 
@@ -151,7 +150,7 @@ def test_stop_accepts_exact_pid_and_rejects_unknown_target(monkeypatch, tmp_path
     active = Instance(8089, 20, "demo")
     manager, project = _manager(monkeypatch, tmp_path, lambda _: [active])
     _record(manager, project, active)
-    monkeypatch.setattr("ghidra_manager.manager.stop_managed_ghidra", lambda *_args, **_kw: None)
+    monkeypatch.setattr("ghidra_manager.runtime.stop_managed_ghidra", lambda *_args, **_kw: None)
 
     assert manager.stop_instance("20") == ["Stopped Ghidra PID 20 for project demo."]
     with pytest.raises(ManagerError, match="project name: missing"):
@@ -175,12 +174,12 @@ def test_restart_resolves_project_before_stop_and_waits_for_readiness(
         return Mock(pid=10, poll=lambda: None)
 
     monkeypatch.setattr(
-        "ghidra_manager.manager.stop_managed_ghidra",
+        "ghidra_manager.runtime.stop_managed_ghidra",
         lambda pid, *_args, **_kw: stopped.append(pid),
     )
-    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
-    monkeypatch.setattr("ghidra_manager.manager.start_ghidra_instance", start)
-    monkeypatch.setattr("ghidra_manager.manager.time.sleep", lambda _: None)
+    monkeypatch.setattr("ghidra_manager.runtime.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.runtime.start_ghidra_instance", start)
+    monkeypatch.setattr("ghidra_manager.runtime.time.sleep", lambda _: None)
 
     lines = manager.restart_instance("20", program="DEMO.EXE", timeout=5)
 

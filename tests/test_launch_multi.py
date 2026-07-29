@@ -39,9 +39,9 @@ def test_launch_multi_waits_for_new_mcp_pids(monkeypatch, tmp_path: Path) -> Non
         log.write_text("", encoding="utf-8")
         return Mock(pid=100 + len(started), poll=lambda: None)
 
-    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
-    monkeypatch.setattr("ghidra_manager.manager.start_ghidra_instance", start)
-    monkeypatch.setattr("ghidra_manager.manager.time.sleep", lambda _: None)
+    monkeypatch.setattr("ghidra_manager.runtime.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.runtime.start_ghidra_instance", start)
+    monkeypatch.setattr("ghidra_manager.runtime.time.sleep", lambda _: None)
 
     lines = manager.launch_multi([str(path) for path in projects], timeout=5)
 

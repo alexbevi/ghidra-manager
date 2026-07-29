@@ -44,6 +44,11 @@ The reviewed catalog is bundled in `src/ghidra_manager/plugin_registry.json`;
 it is not a remote marketplace. Do not invent plugin IDs or infer that an
 arbitrary Ghidra extension is managed because it exists upstream.
 
+When changing the repository, keep instance and project lifecycle behavior in
+`runtime.py`. Keep release installation, curated plugins, rollback, and
+retained comparison orchestration in `manager.py`; `ghidra-manager` remains
+the only user-facing entrypoint.
+
 ## Manage plugins
 
 1. Run `ghidra-manager sync` before installing a plugin on a fresh manager.

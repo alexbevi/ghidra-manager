@@ -44,7 +44,7 @@ def test_instance_reports_merge_live_endpoints_and_retained_records(
     ]
     manager = Manager(paths, SyncClient(), instance_discovery=lambda _: live)
     monkeypatch.setattr(
-        "ghidra_manager.manager.managed_ghidra_process",
+        "ghidra_manager.runtime.managed_ghidra_process",
         lambda pid, _install: pid in {20, 30},
     )
 
@@ -72,7 +72,7 @@ def test_live_pid_reuse_does_not_inherit_ownership(monkeypatch, tmp_path: Path) 
         SyncClient(),
         instance_discovery=lambda _: [Instance(8089, 20, "new-project")],
     )
-    monkeypatch.setattr("ghidra_manager.manager.managed_ghidra_process", lambda *_: True)
+    monkeypatch.setattr("ghidra_manager.runtime.managed_ghidra_process", lambda *_: True)
 
     report = manager.instance_reports()[0]
 

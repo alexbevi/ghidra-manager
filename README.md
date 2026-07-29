@@ -547,6 +547,15 @@ unsaved in Ghidra for review or undo.
 inside one project, use the full-path MCP workflow in the RIPPER example instead
 of trying to launch the same project twice.
 
+## Package Boundaries
+
+`manager.py` coordinates release state, installation, curated plugins,
+rollback, readiness checks, and the retained `compare` workflow.
+`runtime.py` owns project resolution, verified and raw launch behavior,
+manager-owned instance records, stop/restart, instance inspection, logs, and
+the MCP bridge. The CLI continues to use `Manager` as its facade, so this
+separation does not create a second user-facing entrypoint.
+
 ## Validation
 
 ```bash
@@ -579,8 +588,8 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
   retained log path reported by `open`.
 - **Doctor not ready:** address each `ERROR` check, then rerun the same project
   and program selection before starting a write workflow.
-- **Multi-launch timeout:** finish opening CodeBrowser in each project, then run
-  `ghidra-manager instances`.
+- **Multi-project open timeout:** finish opening CodeBrowser in each project,
+  then run `ghidra-manager instances`.
 - **Update refused:** close all processes running from the managed Ghidra
   component directory.
 - **Compare target changed:** generate a fresh plan instead of applying stale
