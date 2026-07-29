@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,7 +32,8 @@ def test_instance_store_round_trip_is_sorted_and_private(tmp_path: Path) -> None
 
     assert [record.pid for record in store.load()] == [20, 30]
     assert json.loads(paths.instances.read_text(encoding="utf-8"))["schema_version"] == 1
-    assert paths.instances.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert paths.instances.stat().st_mode & 0o777 == 0o600
 
 
 def test_instance_store_upserts_and_removes_by_pid(tmp_path: Path) -> None:
