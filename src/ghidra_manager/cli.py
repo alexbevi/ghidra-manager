@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -21,6 +23,16 @@ def _base_port(value: str) -> int:
         return int(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError("base port must be an integer") from exc
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be an integer") from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must not be negative")
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -145,6 +157,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
         help=f"configured GhidraMCP TCP port (default: {DEFAULT_PORT})",
     )
+    logs = commands.add_parser("logs", help="Show a retained managed-instance launch log")
+    logs.add_argument("target", nargs="?")
+    logs.add_argument("--lines", type=_nonnegative_int, default=200)
+    logs.add_argument("--follow", action="store_true")
     return parser
 
 
@@ -170,6 +186,28 @@ def _instance_line(report: InstanceReport) -> str:
         f"project {report.project} | programs {programs}"
     )
     return f"{line} | log {report.log_path}" if report.log_path else line
+
+
+def _logs(target: str | None, *, lines: int, follow: bool) -> int:
+    path = Manager.discover().instance_log(target)
+    print(f"Log: {path}")
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line in deque(handle, maxlen=lines):
+            print(line, end="" if line.endswith("\n") else "\n")
+        if not follow:
+            return 0
+        try:
+            while True:
+                position = handle.tell()
+                line = handle.readline()
+                if line:
+                    print(line, end="" if line.endswith("\n") else "\n", flush=True)
+                    continue
+                if path.stat().st_size < position:
+                    handle.seek(0)
+                time.sleep(0.25)
+        except KeyboardInterrupt:
+            return 0
 
 
 def run(argv: Sequence[str] | None = None) -> int:
@@ -323,6 +361,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         return manager.compare(args.projects[0], args.projects[1], base_port=base_port)
     if args.command == "instances":
         return _instances(args.base_port, as_json=args.json)
+    if args.command == "logs":
+        return _logs(args.target, lines=args.lines, follow=args.follow)
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

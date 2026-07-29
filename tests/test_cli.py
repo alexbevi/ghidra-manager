@@ -82,6 +82,21 @@ def test_instances_json(monkeypatch, capsys) -> None:  # type: ignore[no-untyped
     assert output["instances"][0]["owned"] is False
 
 
+def test_logs_tail(monkeypatch, capsys, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    log = tmp_path / "launch.log"
+    log.write_text("one\ntwo\nthree\n", encoding="utf-8")
+
+    class FakeManager:
+        def instance_log(self, target: str | None) -> Path:
+            assert target == "demo"
+            return log
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["logs", "demo", "--lines", "2"]) == 0
+    assert capsys.readouterr().out == f"Log: {log}\ntwo\nthree\n"
+
+
 def test_status_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
         def status_lines(self) -> list[str]:

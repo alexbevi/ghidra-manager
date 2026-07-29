@@ -120,7 +120,7 @@ def test_stop_resolves_project_and_verifies_managed_process(monkeypatch, tmp_pat
 
     assert stopped == [(20, manager.paths.ghidra / "12.1.2", 3, True)]
     assert lines == ["Stopped Ghidra PID 20 for project demo."]
-    assert InstanceStore(manager.paths).get(20) is None
+    assert InstanceStore(manager.paths).get(20) is not None
 
 
 def test_stop_accepts_exact_pid_and_rejects_unknown_target(monkeypatch, tmp_path: Path) -> None:

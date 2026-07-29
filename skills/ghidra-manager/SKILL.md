@@ -26,6 +26,8 @@ do not hardcode release versions or platform paths.
 - Stop or restart one responding managed process with
   `ghidra-manager stop PROJECT_OR_PID` or
   `ghidra-manager restart PROJECT_OR_PID`.
+- Read or follow a retained startup log with
+  `ghidra-manager logs [PROJECT_OR_PID] [--follow]`.
 - Restore the retained compatible pair with `ghidra-manager rollback`.
 - Register the stdio bridge with
   `codex mcp add ghidra -- ghidra-manager bridge`.
@@ -73,6 +75,8 @@ if source resolution, compilation, validation, or activation fails.
    `instances`. The manager requires a retained `open` or `launch-multi`
    ownership record and verifies the process belongs to the active managed
    Ghidra installation before signaling it.
+5. Use `logs PROJECT_OR_PID` for startup diagnostics. The command resolves only
+   retained manager-owned log paths and keeps logs discoverable after exit.
 
 Use `launch-multi` with two or more distinct `.gpr` paths when separate live
 projects are needed. Inspect its retained `launch-logs/` entry if startup

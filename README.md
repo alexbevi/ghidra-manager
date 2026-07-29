@@ -52,6 +52,7 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
 | `ghidra-manager instances` | `--json`, `--base-port PORT` | `READY | managed | MCP port 8089` |
+| `ghidra-manager logs [PROJECT_OR_PID]` | `--lines N`, `--follow` | `Log: <manager-home>/launch-logs/<launch>.log` |
 
 `launch` and `bridge` deliberately pass remaining arguments through rather than
 interpreting them. Environment variables can also set the manager home, MCP
@@ -337,6 +338,20 @@ launch logs remain discoverable. A running Project Window does not become
 `READY` until CodeBrowser is open and the plugin server is active. Use
 `instances --json` for the same programs, ownership, health, project path,
 Ghidra version, and log metadata as structured data.
+
+Read the latest retained manager launch log, or select one by exact project
+name or PID:
+
+```bash
+ghidra-manager logs
+ghidra-manager logs ripper --lines 500
+ghidra-manager logs 12345 --follow
+```
+
+Project-name and no-target selection choose the newest matching ownership
+record. Log access is restricted to `launch-logs/` under the manager home;
+missing files and paths that escape that directory are rejected. Stopped and
+exited records remain visible as `STALE` so their logs can still be inspected.
 
 Stop or restart one responding instance by its exact project name or PID:
 

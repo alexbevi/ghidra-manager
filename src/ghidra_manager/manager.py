@@ -703,7 +703,6 @@ class Manager:
         self._require_owned_instance(instance)
         install = self.paths.ghidra / pair.ghidra_version
         stop_managed_ghidra(instance.pid, install, timeout=timeout, force=force)
-        InstanceStore(self.paths).remove(instance.pid)
         return [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
 
     def instance_reports(self, base_port: int = DEFAULT_PORT) -> list[InstanceReport]:
@@ -774,7 +773,6 @@ class Manager:
         )
         install = self.paths.ghidra / pair.ghidra_version
         stop_managed_ghidra(instance.pid, install, timeout=stop_timeout, force=force)
-        InstanceStore(self.paths).remove(instance.pid)
         lines = [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
         lines.extend(
             self.open_project(
@@ -785,6 +783,28 @@ class Manager:
             )
         )
         return lines
+
+    def instance_log(self, target: str | None = None) -> Path:
+        records = InstanceStore(self.paths).load()
+        if target is None:
+            matches = records
+            description = "managed instance"
+        elif target.isdecimal():
+            matches = [record for record in records if record.pid == int(target)]
+            description = f"managed PID {target}"
+        else:
+            matches = [record for record in records if record.project == target]
+            description = f"managed project {target}"
+        if not matches:
+            raise ManagerError(f"No retained launch log found for {description}")
+        record = max(matches, key=lambda item: (item.started_at, item.pid))
+        log_root = (self.paths.home / "launch-logs").resolve()
+        log_path = Path(record.log_path).resolve()
+        if log_path == log_root or log_root not in log_path.parents:
+            raise ManagerError(f"Retained launch log escapes manager state: {record.log_path}")
+        if not log_path.is_file():
+            raise ManagerError(f"Retained launch log is missing: {log_path}")
+        return log_path
 
     def launch(self, arguments: list[str]) -> tuple[str, int]:
         store = StateStore(self.paths)

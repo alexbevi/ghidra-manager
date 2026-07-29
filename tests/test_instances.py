@@ -1,6 +1,10 @@
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from ghidra_manager.config import ManagerPaths
+from ghidra_manager.errors import ManagerError
 from ghidra_manager.instance_state import InstanceStore, ManagedInstanceRecord
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
@@ -75,3 +79,32 @@ def test_live_pid_reuse_does_not_inherit_ownership(monkeypatch, tmp_path: Path) 
     assert report.project == "new-project"
     assert report.owned is False
     assert report.log_path is None
+
+
+def test_instance_log_selects_newest_matching_record(tmp_path: Path) -> None:
+    paths = ManagerPaths(tmp_path / "managed")
+    log_dir = paths.home / "launch-logs"
+    log_dir.mkdir(parents=True)
+    old_log = log_dir / "old.log"
+    new_log = log_dir / "new.log"
+    old_log.write_text("old\n", encoding="utf-8")
+    new_log.write_text("new\n", encoding="utf-8")
+    store = InstanceStore(paths)
+    store.upsert(replace(_record(20, "demo"), log_path=str(old_log), started_at=10))
+    store.upsert(replace(_record(30, "demo"), log_path=str(new_log), started_at=20))
+    manager = Manager(paths, SyncClient())
+
+    assert manager.instance_log("demo") == new_log.resolve()
+    assert manager.instance_log("20") == old_log.resolve()
+    assert manager.instance_log() == new_log.resolve()
+
+
+def test_instance_log_rejects_path_outside_manager_log_directory(tmp_path: Path) -> None:
+    paths = ManagerPaths(tmp_path / "managed")
+    outside = tmp_path / "outside.log"
+    outside.write_text("secret\n", encoding="utf-8")
+    InstanceStore(paths).upsert(replace(_record(20, "demo"), log_path=str(outside)))
+    manager = Manager(paths, SyncClient())
+
+    with pytest.raises(ManagerError, match="escapes manager state"):
+        manager.instance_log("demo")
