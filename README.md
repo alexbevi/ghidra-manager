@@ -225,6 +225,7 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 ├── plugins/<plugin>/<ghidra-version>/<source-commit>/
 ├── pairs/<ghidra-and-plugin-manifest>/metadata.json
 ├── state.json
+├── instances.json
 ├── gradle-cache/
 ├── launch-logs/
 ├── compare-plans/
@@ -234,6 +235,10 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 
 `state.json` records the current and previous pair IDs without requiring
 symlinks. Each pair records its exact Ghidra release and sorted plugin manifest.
+`instances.json` atomically records processes that reached MCP readiness after
+`open` or `launch-multi`, including their project, port, managed Ghidra
+version, launcher PID, and retained log. `stop` and `restart` only signal
+instances whose live MCP identity matches one of these records.
 Downloads, builds, and extension installation are validated before an atomic
 state replacement. Failed extension replacement restores every affected
 plugin directory.

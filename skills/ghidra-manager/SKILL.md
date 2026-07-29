@@ -66,7 +66,8 @@ if source resolution, compilation, validation, or activation fails.
    its server is started from the Ghidra Tools menu, then inspect the reported
    log.
 4. Use `stop` or `restart` only with the exact project name or PID reported by
-   `instances`. The manager verifies the process belongs to the active managed
+   `instances`. The manager requires a retained `open` or `launch-multi`
+   ownership record and verifies the process belongs to the active managed
    Ghidra installation before signaling it.
 
 Use `launch-multi` with two or more distinct `.gpr` paths when separate live

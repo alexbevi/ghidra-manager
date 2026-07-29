@@ -17,6 +17,7 @@ from ghidra_manager import compare as compare_engine
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
+from ghidra_manager.instance_state import InstanceStore, ManagedInstanceRecord
 from ghidra_manager.mcp import (
     DEFAULT_PORT,
     Instance,
@@ -627,6 +628,7 @@ class Manager:
         java_home = find_java21()
         install = self.paths.ghidra / pair.ghidra_version
         stamp = time.strftime("%Y%m%d-%H%M%S")
+        started_at = int(time.time())
         log_path = self.paths.home / "launch-logs" / f"{stamp}-open-{project_path.stem}.log"
         process = start_ghidra_instance(install, project_path, java_home, log_path)
         lines = [
@@ -652,6 +654,18 @@ class Manager:
                 None,
             )
             if match:
+                InstanceStore(self.paths).upsert(
+                    ManagedInstanceRecord(
+                        pid=match.pid,
+                        launcher_pid=process.pid,
+                        port=match.port,
+                        project=match.project,
+                        project_path=str(project_path),
+                        log_path=str(log_path),
+                        ghidra_version=pair.ghidra_version,
+                        started_at=started_at,
+                    )
+                )
                 lines.append("GhidraMCP instance ready:")
                 lines.extend(self._instance_lines([match]))
                 if match.programs:
@@ -677,8 +691,10 @@ class Manager:
         pair = self._require_active_pair()
         self._require_mcp(pair)
         instance = self._resolve_instance_target(target, self.instance_discovery(base_port))
+        self._require_owned_instance(instance)
         install = self.paths.ghidra / pair.ghidra_version
         stop_managed_ghidra(instance.pid, install, timeout=timeout, force=force)
+        InstanceStore(self.paths).remove(instance.pid)
         return [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
 
     def restart_instance(
@@ -694,9 +710,15 @@ class Manager:
         pair = self._require_active_pair()
         self._require_mcp(pair)
         instance = self._resolve_instance_target(target, self.instance_discovery(base_port))
-        project_path = self._resolve_project(instance.project)
+        record = self._require_owned_instance(instance)
+        project_path = (
+            self._normalize_project(record.project_path)
+            if record.project_path is not None
+            else self._resolve_project(instance.project)
+        )
         install = self.paths.ghidra / pair.ghidra_version
         stop_managed_ghidra(instance.pid, install, timeout=stop_timeout, force=force)
+        InstanceStore(self.paths).remove(instance.pid)
         lines = [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
         lines.extend(
             self.open_project(
@@ -763,12 +785,14 @@ class Manager:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         log_dir = self.paths.home / "launch-logs"
         lines = [f"Launching {instance_count} Ghidra instances with JDK 21..."]
+        launches: list[tuple[Path | None, int, Path, int]] = []
         for index in range(instance_count):
             project = normalized[index] if normalized else None
             description = str(project) if project else "restore/select a distinct project"
             lines.append(f"  Instance {index + 1}: {description}")
             log_path = log_dir / f"{stamp}-{index + 1}.log"
             process = start_ghidra_instance(install, project, java_home, log_path)
+            launches.append((project, process.pid, log_path, int(time.time())))
             time.sleep(1)
             if process.poll() is not None:
                 detail = log_path.read_text(encoding="utf-8", errors="replace")[:4000]
@@ -787,11 +811,13 @@ class Manager:
             scanned = self.instance_discovery(base_port)
             new_instances = [item for item in scanned if item.pid not in baseline_pids]
             if len(new_instances) >= instance_count:
+                self._record_launched_instances(new_instances, launches, pair.ghidra_version)
                 lines.append("GhidraMCP instances ready:")
                 lines.extend(self._instance_lines(new_instances))
                 return lines
             time.sleep(2)
         if new_instances:
+            self._record_launched_instances(new_instances, launches, pair.ghidra_version)
             lines.append("New MCP endpoints detected before timeout:")
             lines.extend(self._instance_lines(new_instances))
         raise ManagerError(
@@ -898,6 +924,48 @@ class Manager:
         if len(matches) != 1:
             raise ManagerError(f"Multiple responding GhidraMCP instances have {description}")
         return matches[0]
+
+    def _require_owned_instance(self, instance: Instance) -> ManagedInstanceRecord:
+        record = InstanceStore(self.paths).get(instance.pid)
+        if record is None or record.project != instance.project:
+            raise ManagerError(
+                f"Refusing to manage untracked PID {instance.pid}; use an instance launched "
+                "by ghidra-manager open or launch-multi"
+            )
+        return record
+
+    def _record_launched_instances(
+        self,
+        instances: list[Instance],
+        launches: list[tuple[Path | None, int, Path, int]],
+        ghidra_version: str,
+    ) -> None:
+        remaining = list(launches)
+        store = InstanceStore(self.paths)
+        for instance in sorted(instances):
+            match_index = next(
+                (
+                    index
+                    for index, (project, *_rest) in enumerate(remaining)
+                    if project is not None and project.stem == instance.project
+                ),
+                0 if remaining else None,
+            )
+            if match_index is None:
+                continue
+            project, launcher_pid, log_path, started_at = remaining.pop(match_index)
+            store.upsert(
+                ManagedInstanceRecord(
+                    pid=instance.pid,
+                    launcher_pid=launcher_pid,
+                    port=instance.port,
+                    project=instance.project,
+                    project_path=str(project) if project is not None else None,
+                    log_path=str(log_path),
+                    ghidra_version=ghidra_version,
+                    started_at=started_at,
+                )
+            )
 
     def _resolve_project(self, value: str) -> Path:
         candidate = Path(value)

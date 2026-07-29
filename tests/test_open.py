@@ -5,6 +5,7 @@ import pytest
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.instance_state import InstanceStore, ManagedInstanceRecord
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
 from ghidra_manager.models import ManagerState
@@ -36,6 +37,21 @@ def _manager(monkeypatch, tmp_path: Path, discovery) -> tuple[Manager, Path]:  #
     return Manager(paths, SyncClient(), instance_discovery=discovery), project
 
 
+def _record(manager: Manager, project: Path, instance: Instance) -> None:
+    InstanceStore(manager.paths).upsert(
+        ManagedInstanceRecord(
+            pid=instance.pid,
+            launcher_pid=10,
+            port=instance.port,
+            project=instance.project,
+            project_path=str(project.resolve()),
+            log_path=str(manager.paths.home / "launch-logs/demo.log"),
+            ghidra_version="12.1.2",
+            started_at=1234,
+        )
+    )
+
+
 def test_open_resolves_recorded_name_and_waits_for_program(monkeypatch, tmp_path: Path) -> None:
     ready = Instance(8089, 20, "demo", ("DEMO.EXE",))
     scans = iter([[], [ready]])
@@ -59,6 +75,9 @@ def test_open_resolves_recorded_name_and_waits_for_program(monkeypatch, tmp_path
         "MCP port 8089 | PID 20 | project demo | http://127.0.0.1:8089",
         "Open programs: DEMO.EXE",
     ]
+    record = InstanceStore(manager.paths).get(20)
+    assert record is not None
+    assert record.project_path == str(project.resolve())
 
 
 def test_open_rejects_active_project(monkeypatch, tmp_path: Path) -> None:
@@ -88,7 +107,8 @@ def test_open_reports_early_exit(monkeypatch, tmp_path: Path) -> None:
 
 def test_stop_resolves_project_and_verifies_managed_process(monkeypatch, tmp_path: Path) -> None:
     active = Instance(8089, 20, "demo", ("DEMO.EXE",))
-    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [active])
+    manager, project = _manager(monkeypatch, tmp_path, lambda _: [active])
+    _record(manager, project, active)
     stopped: list[tuple[int, Path, int, bool]] = []
 
     monkeypatch.setattr(
@@ -100,11 +120,13 @@ def test_stop_resolves_project_and_verifies_managed_process(monkeypatch, tmp_pat
 
     assert stopped == [(20, manager.paths.ghidra / "12.1.2", 3, True)]
     assert lines == ["Stopped Ghidra PID 20 for project demo."]
+    assert InstanceStore(manager.paths).get(20) is None
 
 
 def test_stop_accepts_exact_pid_and_rejects_unknown_target(monkeypatch, tmp_path: Path) -> None:
     active = Instance(8089, 20, "demo")
-    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [active])
+    manager, project = _manager(monkeypatch, tmp_path, lambda _: [active])
+    _record(manager, project, active)
     monkeypatch.setattr("ghidra_manager.manager.stop_managed_ghidra", lambda *_args, **_kw: None)
 
     assert manager.stop_instance("20") == ["Stopped Ghidra PID 20 for project demo."]
@@ -119,6 +141,7 @@ def test_restart_resolves_project_before_stop_and_waits_for_readiness(
     restarted = Instance(8089, 21, "demo", ("DEMO.EXE",))
     scans = iter([[active], [], [restarted]])
     manager, project = _manager(monkeypatch, tmp_path, lambda _: next(scans))
+    _record(manager, project, active)
     stopped: list[int] = []
 
     def start(_install, selected, _java, log):  # type: ignore[no-untyped-def]

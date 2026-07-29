@@ -135,6 +135,10 @@ class ManagerPaths:
         return self.home / "state.json"
 
     @property
+    def instances(self) -> Path:
+        return self.home / "instances.json"
+
+    @property
     def python(self) -> Path:
         return self.home / "python"
 

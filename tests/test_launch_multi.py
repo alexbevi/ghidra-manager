@@ -5,6 +5,7 @@ import pytest
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.instance_state import InstanceStore
 from ghidra_manager.manager import Manager
 from ghidra_manager.mcp import Instance
 from ghidra_manager.models import ManagerState
@@ -48,6 +49,11 @@ def test_launch_multi_waits_for_new_mcp_pids(monkeypatch, tmp_path: Path) -> Non
     assert lines[-2:] == [
         "MCP port 8090 | PID 20 | project one | http://127.0.0.1:8090",
         "MCP port 8091 | PID 21 | project two | http://127.0.0.1:8091",
+    ]
+    records = InstanceStore(manager.paths).load()
+    assert [(record.pid, record.launcher_pid, record.project) for record in records] == [
+        (20, 101, "one"),
+        (21, 102, "two"),
     ]
 
 
