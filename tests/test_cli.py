@@ -2,25 +2,33 @@ import json
 from pathlib import Path
 
 from ghidra_manager import cli
-from ghidra_manager.mcp import Instance
+from ghidra_manager.instance_state import InstanceReport
 from ghidra_manager.models import DoctorCheck
 
 
 def test_instances_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
-        def require_mcp(self) -> None:
-            pass
+        def instance_reports(self, base_port: int) -> list[InstanceReport]:
+            assert base_port == 9000
+            return [
+                InstanceReport(
+                    pid=123,
+                    port=9000,
+                    project="demo",
+                    programs=("DEMO.EXE",),
+                    url="http://127.0.0.1:9000",
+                    owned=True,
+                    health="ready",
+                    log_path="/logs/demo.log",
+                )
+            ]
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
-    monkeypatch.setattr(
-        cli,
-        "discover_instances",
-        lambda port: [Instance(port=port, pid=123, project="demo")],
-    )
 
     assert cli.run(["instances", "--base-port", "9000"]) == 0
     assert capsys.readouterr().out == (
-        "MCP port 9000 | PID 123 | project demo | http://127.0.0.1:9000\n"
+        "READY           | managed  | MCP port 9000 | PID 123 | project demo | "
+        "programs DEMO.EXE | log /logs/demo.log\n"
     )
 
 
@@ -42,14 +50,36 @@ def test_help_command(capsys) -> None:  # type: ignore[no-untyped-def]
 
 def test_instances_empty_state(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
-        def require_mcp(self) -> None:
-            pass
+        def instance_reports(self, base_port: int) -> list[InstanceReport]:
+            return []
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
-    monkeypatch.setattr(cli, "discover_instances", lambda port: [])
 
     assert cli.run(["instances"]) == 1
     assert capsys.readouterr().out == ("No GhidraMCP instances found on ports 8089-8104.\n")
+
+
+def test_instances_json(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def instance_reports(self, base_port: int) -> list[InstanceReport]:
+            return [
+                InstanceReport(
+                    pid=123,
+                    port=base_port,
+                    project="demo",
+                    programs=("DEMO.EXE",),
+                    url=f"http://127.0.0.1:{base_port}",
+                    owned=False,
+                    health="ready",
+                )
+            ]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert cli.run(["instances", "--json"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["instances"][0]["programs"] == ["DEMO.EXE"]
+    assert output["instances"][0]["owned"] is False
 
 
 def test_status_output(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]

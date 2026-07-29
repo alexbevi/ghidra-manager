@@ -21,7 +21,8 @@ do not hardcode release versions or platform paths.
   the user intends to install or update Ghidra and rebuild selected plugins.
 - List recorded project paths with `ghidra-manager projects`.
 - Open and verify one recorded project with `ghidra-manager open PROJECT`.
-- List responding GhidraMCP processes with `ghidra-manager instances`.
+- Inspect live and retained Ghidra processes, programs, ownership, health, and
+  log paths with `ghidra-manager instances [--json]`.
 - Stop or restart one responding managed process with
   `ghidra-manager stop PROJECT_OR_PID` or
   `ghidra-manager restart PROJECT_OR_PID`.
@@ -30,8 +31,11 @@ do not hardcode release versions or platform paths.
   `codex mcp add ghidra -- ghidra-manager bridge`.
 
 `projects` reports Ghidra's settings registry, not live processes. Use
-`instances` as the runtime truth surface. Prefer `doctor --json` when Codex
-needs structured readiness details without upstream release resolution.
+`instances` as the runtime truth surface: `READY` means MCP responded,
+`MCP-UNAVAILABLE` means a tracked process is running without MCP, and `STALE`
+means the retained process exited. Prefer `instances --json` for automation
+and `doctor --json` for structured readiness details without upstream release
+resolution.
 
 The reviewed catalog is bundled in `src/ghidra_manager/plugin_registry.json`;
 it is not a remote marketplace. Do not invent plugin IDs or infer that an

@@ -11,8 +11,9 @@ from pathlib import Path
 
 from ghidra_manager import __version__
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.instance_state import InstanceReport
 from ghidra_manager.manager import Manager
-from ghidra_manager.mcp import DEFAULT_PORT, PORT_RANGE, discover_instances
+from ghidra_manager.mcp import DEFAULT_PORT, PORT_RANGE
 
 
 def _base_port(value: str) -> int:
@@ -137,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     instances = commands.add_parser(
         "instances", help="List active GhidraMCP instances and TCP ports"
     )
+    instances.add_argument("--json", action="store_true")
     instances.add_argument(
         "--base-port",
         type=_base_port,
@@ -146,17 +148,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _instances(base_port: int) -> int:
-    instances = discover_instances(base_port)
-    if not instances:
+def _instances(base_port: int, *, as_json: bool = False) -> int:
+    reports = Manager.discover().instance_reports(base_port)
+    if as_json:
+        print(json.dumps({"instances": [report.as_dict() for report in reports]}, indent=2))
+        return 0 if reports else 1
+    if not reports:
         print(f"No GhidraMCP instances found on ports {base_port}-{base_port + PORT_RANGE - 1}.")
         return 1
-    for instance in instances:
-        print(
-            f"MCP port {instance.port} | PID {instance.pid} | "
-            f"project {instance.project} | {instance.url}"
-        )
+    for report in reports:
+        print(_instance_line(report))
     return 0
+
+
+def _instance_line(report: InstanceReport) -> str:
+    ownership = "managed" if report.owned else "external"
+    programs = ", ".join(report.programs) if report.programs else "-"
+    endpoint = f"MCP port {report.port}" if report.url else f"last MCP port {report.port}"
+    line = (
+        f"{report.health.upper():15} | {ownership:8} | {endpoint} | PID {report.pid} | "
+        f"project {report.project} | programs {programs}"
+    )
+    return f"{line} | log {report.log_path}" if report.log_path else line
 
 
 def run(argv: Sequence[str] | None = None) -> int:
@@ -309,8 +322,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         base_port = args.base_port or int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT))
         return manager.compare(args.projects[0], args.projects[1], base_port=base_port)
     if args.command == "instances":
-        Manager.discover().require_mcp()
-        return _instances(args.base_port)
+        return _instances(args.base_port, as_json=args.json)
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

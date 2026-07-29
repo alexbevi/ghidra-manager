@@ -51,7 +51,7 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
-| `ghidra-manager instances` | `--base-port PORT` | `MCP port 8089` |
+| `ghidra-manager instances` | `--json`, `--base-port PORT` | `READY | managed | MCP port 8089` |
 
 `launch` and `bridge` deliberately pass remaining arguments through rather than
 interpreting them. Environment variables can also set the manager home, MCP
@@ -326,12 +326,17 @@ ghidra-manager instances
 Representative output:
 
 ```text
-MCP port 8089 | PID <pid> | project ripper | http://127.0.0.1:8089
+READY           | managed  | MCP port 8089 | PID <pid> | project ripper | programs RIPPER.LE | log <manager-home>/launch-logs/<launch>.log
 ```
 
 `projects` reads Ghidra's settings registry, while `instances` reports live
-GhidraMCP endpoints. A running Project Window does not appear in `instances`
-until CodeBrowser is open and the plugin server is active.
+GhidraMCP endpoints together with retained manager ownership records. It labels
+untracked endpoints `external`, reports tracked processes without a responding
+endpoint as `MCP-UNAVAILABLE`, and retains exited records as `STALE` so their
+launch logs remain discoverable. A running Project Window does not become
+`READY` until CodeBrowser is open and the plugin server is active. Use
+`instances --json` for the same programs, ownership, health, project path,
+Ghidra version, and log metadata as structured data.
 
 Stop or restart one responding instance by its exact project name or PID:
 

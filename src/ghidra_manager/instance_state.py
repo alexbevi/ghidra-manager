@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.storage import atomic_json
 
 INSTANCE_STATE_VERSION = 1
+InstanceHealth = Literal["ready", "mcp-unavailable", "stale"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,27 @@ class ManagedInstanceRecord:
     log_path: str
     ghidra_version: str
     started_at: int
+
+
+@dataclass(frozen=True, slots=True)
+class InstanceReport:
+    pid: int
+    port: int
+    project: str
+    programs: tuple[str, ...]
+    url: str | None
+    owned: bool
+    health: InstanceHealth
+    launcher_pid: int | None = None
+    project_path: str | None = None
+    log_path: str | None = None
+    ghidra_version: str | None = None
+    started_at: int | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        value = asdict(self)
+        value["programs"] = list(self.programs)
+        return value
 
 
 class InstanceStore:

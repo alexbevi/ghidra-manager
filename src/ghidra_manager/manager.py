@@ -17,7 +17,12 @@ from ghidra_manager import compare as compare_engine
 from ghidra_manager.config import ManagerPaths
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.github import GitHubClient
-from ghidra_manager.instance_state import InstanceStore, ManagedInstanceRecord
+from ghidra_manager.instance_state import (
+    InstanceHealth,
+    InstanceReport,
+    InstanceStore,
+    ManagedInstanceRecord,
+)
 from ghidra_manager.mcp import (
     DEFAULT_PORT,
     Instance,
@@ -51,7 +56,11 @@ from ghidra_manager.plugins import (
     resolve_plugin_source,
     validate_plugin_archive,
 )
-from ghidra_manager.processes import managed_ghidra_running, stop_managed_ghidra
+from ghidra_manager.processes import (
+    managed_ghidra_process,
+    managed_ghidra_running,
+    stop_managed_ghidra,
+)
 from ghidra_manager.releases import (
     ReleaseClient,
     file_digest,
@@ -697,6 +706,53 @@ class Manager:
         InstanceStore(self.paths).remove(instance.pid)
         return [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
 
+    def instance_reports(self, base_port: int = DEFAULT_PORT) -> list[InstanceReport]:
+        self._require_mcp(self._require_active_pair())
+        live = self.instance_discovery(base_port)
+        records = InstanceStore(self.paths).load()
+        records_by_pid = {record.pid: record for record in records}
+        reports: list[InstanceReport] = []
+        live_pids: set[int] = set()
+        for instance in live:
+            live_pids.add(instance.pid)
+            record = records_by_pid.get(instance.pid)
+            owned = (
+                record is not None
+                and record.project == instance.project
+                and managed_ghidra_process(
+                    instance.pid, self.paths.ghidra / record.ghidra_version
+                )
+            )
+            reports.append(
+                self._instance_report(
+                    instance.pid,
+                    instance.port,
+                    instance.project,
+                    instance.programs,
+                    instance.url,
+                    "ready",
+                    record if owned else None,
+                )
+            )
+        for record in records:
+            if record.pid in live_pids:
+                continue
+            running = managed_ghidra_process(
+                record.pid, self.paths.ghidra / record.ghidra_version
+            )
+            reports.append(
+                self._instance_report(
+                    record.pid,
+                    record.port,
+                    record.project,
+                    (),
+                    None,
+                    "mcp-unavailable" if running else "stale",
+                    record,
+                )
+            )
+        return sorted(reports, key=lambda report: (report.port, report.pid))
+
     def restart_instance(
         self,
         target: str,
@@ -966,6 +1022,31 @@ class Manager:
                     started_at=started_at,
                 )
             )
+
+    @staticmethod
+    def _instance_report(
+        pid: int,
+        port: int,
+        project: str,
+        programs: tuple[str, ...],
+        url: str | None,
+        health: InstanceHealth,
+        record: ManagedInstanceRecord | None,
+    ) -> InstanceReport:
+        return InstanceReport(
+            pid=pid,
+            port=port,
+            project=project,
+            programs=programs,
+            url=url,
+            owned=record is not None,
+            health=health,
+            launcher_pid=record.launcher_pid if record else None,
+            project_path=record.project_path if record else None,
+            log_path=record.log_path if record else None,
+            ghidra_version=record.ghidra_version if record else None,
+            started_at=record.started_at if record else None,
+        )
 
     def _resolve_project(self, value: str) -> Path:
         candidate = Path(value)
