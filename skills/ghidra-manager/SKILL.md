@@ -20,7 +20,8 @@ do not hardcode release versions or platform paths.
 - Preview an update with `ghidra-manager sync --dry-run`; use `sync` only when
   the user intends to install or update Ghidra and rebuild selected plugins.
 - List recorded project paths with `ghidra-manager projects`.
-- Open and verify one recorded project with `ghidra-manager open PROJECT`.
+- Open and verify one or more recorded projects with
+  `ghidra-manager open PROJECT [PROJECT ...]`.
 - Inspect live and retained Ghidra processes, programs, ownership, health, and
   log paths with `ghidra-manager instances [--json]`.
 - Stop or restart one responding managed process with
@@ -63,9 +64,9 @@ if source resolution, compilation, validation, or activation fails.
 
 ## Launch and verify projects
 
-1. Prefer `ghidra-manager open PROJECT --program PROGRAM` for a single recorded
-   project. It resolves the name, retains a startup log, and waits for the
-   expected MCP project and optional program.
+1. Prefer `ghidra-manager open PROJECT [PROJECT ...]` for verified startup. It
+   resolves recorded names, retains startup logs, and waits for the expected
+   MCP projects. Use `--program PROGRAM` only with one project.
 2. Use `ghidra-manager launch /absolute/path/project.gpr` only when raw Ghidra
    argument forwarding is required. Do not substitute a recorded project name.
 3. If `open` times out, confirm CodeBrowser is open, GhidraMCP is enabled, and
@@ -78,11 +79,12 @@ if source resolution, compilation, validation, or activation fails.
 5. Use `logs PROJECT_OR_PID` for startup diagnostics. The command resolves only
    retained manager-owned log paths and keeps logs discoverable after exit.
 
-Use `launch-multi` with two or more distinct `.gpr` paths when separate live
-projects are needed. Inspect its retained `launch-logs/` entry if startup
-fails. Never use `ghidra-manager launch --help` to inspect CLI syntax because
-`launch` forwards `--help` to Ghidra; use `ghidra-manager help`, the README, or
-the package source instead.
+Use `open` with two or more distinct recorded names or `.gpr` paths when
+separate live projects are needed. Inspect the retained `launch-logs/` entries
+if startup fails. `launch-multi` is a compatibility alias; do not use it for
+new workflows. Never use `ghidra-manager launch --help` to inspect CLI syntax
+because raw `launch` forwards `--help` to Ghidra; use `ghidra-manager help`,
+the README, or the package source instead.
 
 ## Work with multiple programs in one project
 

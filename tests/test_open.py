@@ -88,6 +88,30 @@ def test_open_rejects_active_project(monkeypatch, tmp_path: Path) -> None:
         manager.open_project("demo")
 
 
+def test_open_projects_routes_multiple_projects_to_verified_multi_launch(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [])
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        Manager,
+        "launch_multi",
+        lambda self, projects, **_kwargs: captured.append(projects) or ["ready"],
+    )
+
+    assert manager.open_projects(["one", "two"]) == ["ready"]
+    assert captured == [["one", "two"]]
+
+
+def test_open_projects_rejects_program_assertion_for_multiple_projects(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [])
+
+    with pytest.raises(ManagerError, match="only be used when opening one"):
+        manager.open_projects(["one", "two"], program="DEMO.EXE")
+
+
 def test_open_reports_early_exit(monkeypatch, tmp_path: Path) -> None:
     manager, project = _manager(monkeypatch, tmp_path, lambda _: [])
 

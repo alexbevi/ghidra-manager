@@ -258,15 +258,20 @@ def test_launch_forwards_arguments(monkeypatch, capsys) -> None:  # type: ignore
 
 def test_open_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
-        def open_project(
+        def open_projects(
             self,
-            project: str,
+            projects: list[str],
             *,
             program: str | None,
             timeout: int,
             base_port: int,
         ) -> list[str]:
-            assert (project, program, timeout, base_port) == ("demo", "DEMO.EXE", 30, 9000)
+            assert (projects, program, timeout, base_port) == (
+                ["demo"],
+                "DEMO.EXE",
+                30,
+                9000,
+            )
             return ["GhidraMCP instance ready:"]
 
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
@@ -287,6 +292,43 @@ def test_open_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-d
         == 0
     )
     assert capsys.readouterr().out == "GhidraMCP instance ready:\n"
+
+
+def test_open_multiple_projects(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def open_projects(
+            self,
+            projects: list[str],
+            *,
+            program: str | None,
+            timeout: int,
+            base_port: int,
+        ) -> list[str]:
+            assert (projects, program, timeout, base_port) == (
+                ["first", "second"],
+                None,
+                30,
+                9000,
+            )
+            return ["GhidraMCP instances ready:"]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(
+            [
+                "open",
+                "first",
+                "second",
+                "--timeout",
+                "30",
+                "--base-port",
+                "9000",
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == "GhidraMCP instances ready:\n"
 
 
 def test_stop_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -371,7 +413,9 @@ def test_launch_multi_options(monkeypatch, capsys) -> None:  # type: ignore[no-u
     monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
 
     assert cli.run(["launch-multi", "--count", "2", "--timeout", "30", "--base-port", "9000"]) == 0
-    assert capsys.readouterr().out == "GhidraMCP instances ready:\n"
+    captured = capsys.readouterr()
+    assert captured.out == "GhidraMCP instances ready:\n"
+    assert "retained for compatibility" in captured.err
 
 
 def test_bridge_forwards_arguments(monkeypatch) -> None:  # type: ignore[no-untyped-def]

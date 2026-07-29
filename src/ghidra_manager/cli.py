@@ -76,9 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plugin_remove.add_argument("plugin")
     open_project = commands.add_parser(
-        "open", help="Open a recorded Ghidra project and wait for its MCP endpoint"
+        "open", help="Open one or more Ghidra projects and wait for their MCP endpoints"
     )
-    open_project.add_argument("project")
+    open_project.add_argument("projects", nargs="+")
     open_project.add_argument("--program")
     open_project.add_argument(
         "--timeout",
@@ -119,11 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
     )
     launch = commands.add_parser(
-        "launch", help="Launch one active Ghidra with JDK 21", add_help=False
+        "launch",
+        help="Pass arguments directly to Ghidra without project resolution or readiness checks",
+        add_help=False,
     )
     launch.add_argument("arguments", nargs=argparse.REMAINDER)
     launch_multi = commands.add_parser(
-        "launch-multi", help="Launch multiple Ghidra projects and report their MCP ports"
+        "launch-multi",
+        help=argparse.SUPPRESS,
     )
     launch_multi.add_argument("--count", type=int)
     launch_multi.add_argument(
@@ -306,8 +309,8 @@ def run(argv: Sequence[str] | None = None) -> int:
             return 0
         raise AssertionError(f"Unhandled plugin command: {args.plugin_command}")
     if args.command == "open":
-        for line in Manager.discover().open_project(
-            args.project,
+        for line in Manager.discover().open_projects(
+            args.projects,
             program=args.program,
             timeout=args.timeout,
             base_port=args.base_port,
@@ -339,6 +342,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(message)
         return returncode
     if args.command == "launch-multi":
+        print(
+            "WARNING: launch-multi is retained for compatibility; use open PROJECT [PROJECT ...].",
+            file=sys.stderr,
+        )
         for line in Manager.discover().launch_multi(
             args.projects,
             count=args.count,

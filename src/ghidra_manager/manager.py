@@ -689,6 +689,27 @@ class Manager:
             f"{log_path}."
         )
 
+    def open_projects(
+        self,
+        projects: list[str],
+        *,
+        program: str | None = None,
+        timeout: int = 180,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[str]:
+        if not projects:
+            raise ManagerError("Open requires at least one project")
+        if len(projects) == 1:
+            return self.open_project(
+                projects[0],
+                program=program,
+                timeout=timeout,
+                base_port=base_port,
+            )
+        if program is not None:
+            raise ManagerError("--program can only be used when opening one project")
+        return self.launch_multi(projects, timeout=timeout, base_port=base_port)
+
     def stop_instance(
         self,
         target: str,
@@ -828,7 +849,7 @@ class Manager:
             raise ManagerError("Timeout must be a positive integer")
         if projects and count is not None:
             raise ManagerError("Use either --count or project paths, not both")
-        normalized = [self._normalize_project(path) for path in projects]
+        normalized = [self._resolve_project(path) for path in projects]
         instance_count = len(normalized) if normalized else (count or 2)
         if instance_count < 2:
             raise ManagerError("launch-multi requires at least two instances")

@@ -44,11 +44,10 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager plugins list` | `--json` | `Plugins for Ghidra <version>:` |
 | `ghidra-manager plugins install PLUGIN` | `mcp` or `ghidra-lx-loader` | `Installed plugin mcp <version> for Ghidra <version>.` |
 | `ghidra-manager plugins remove PLUGIN` | `mcp` or `ghidra-lx-loader` | `Removed plugin mcp from Ghidra <version>.` |
-| `ghidra-manager open PROJECT` | `--program PROGRAM`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instance ready:` |
+| `ghidra-manager open PROJECT [PROJECT ...]` | `--program PROGRAM` for one project, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instance ready:` |
 | `ghidra-manager stop PROJECT_OR_PID` | `--timeout SECONDS`, `--force`, `--base-port PORT` | `Stopped Ghidra PID <pid> for project <project>.` |
 | `ghidra-manager restart PROJECT_OR_PID` | `--program PROGRAM`, `--timeout SECONDS`, `--stop-timeout SECONDS`, `--force`, `--base-port PORT` | `GhidraMCP instance ready:` |
-| `ghidra-manager launch [GHIDRA_ARGS...]` | Remaining arguments pass through to Ghidra | `Launching Ghidra <version> with JDK 21...` |
-| `ghidra-manager launch-multi [PROJECT.gpr ...]` | `--count N`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instances ready:` |
+| `ghidra-manager launch [GHIDRA_ARGS...]` | Raw arguments pass through; no project resolution or readiness check | `Launching Ghidra <version> with JDK 21...` |
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
@@ -297,15 +296,15 @@ MCP port 8089 | PID <pid> | project ripper | http://127.0.0.1:8089
 Open programs: RIPPER.LE
 ```
 
-Launch the active distribution, optionally opening a project by its `.gpr`
-path:
+Pass arguments directly to the active Ghidra distribution:
 
 ```bash
 ghidra-manager launch
 ghidra-manager launch /path/to/project.gpr
 ```
 
-`launch` passes all remaining arguments directly to Ghidra. It does not resolve
+`launch` is the raw escape hatch: it passes all remaining arguments directly
+to Ghidra and does not wait for an MCP endpoint. It does not resolve
 a recorded name such as `ripper` to its project path, and `launch --help` is
 therefore forwarded to Ghidra rather than handled as CLI help. Use
 `ghidra-manager help` for the manager command summary.
@@ -368,18 +367,18 @@ the ownership check. Restart resolves the recorded project before stopping the
 process, then uses the same readiness checks and retained startup log as
 `open`.
 
-Launch one process per project and wait for new MCP endpoints:
+Open one process per project and wait for new MCP endpoints:
 
 ```bash
-ghidra-manager launch-multi \
-  /path/to/first-project.gpr \
-  /path/to/second-project.gpr
+ghidra-manager open first-project second-project
 ```
 
-Without paths, `launch-multi` opens two instances by default. Use `--count`,
-`--timeout`, or `--base-port` to override launch behavior. Projects and project
-names must be distinct, and already-active projects are rejected. Detached
-startup logs are retained under `launch-logs/`.
+Each argument may be a recorded project name or a `.gpr` path. Projects and
+project names must be distinct, and already-active projects are rejected.
+Detached startup logs are retained under `launch-logs/`. `--program` is only
+valid when opening one project. The former `launch-multi` command remains as a
+compatibility alias, including its no-project `--count` behavior, but new
+workflows should use `open`.
 
 Register the managed stdio bridge with Codex:
 
@@ -394,7 +393,7 @@ ghidra-manager bridge --help
 ```
 
 `GHIDRA_MCP_BASE_PORT` changes the discovery base port.
-`GHIDRA_MCP_LAUNCH_TIMEOUT` changes the multi-launch timeout.
+`GHIDRA_MCP_LAUNCH_TIMEOUT` changes the verified open timeout.
 
 ## Use With Codex
 
