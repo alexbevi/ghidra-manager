@@ -84,3 +84,59 @@ def test_open_reports_early_exit(monkeypatch, tmp_path: Path) -> None:
 
     with pytest.raises(ManagerError, match="startup failed"):
         manager.open_project(str(project))
+
+
+def test_stop_resolves_project_and_verifies_managed_process(monkeypatch, tmp_path: Path) -> None:
+    active = Instance(8089, 20, "demo", ("DEMO.EXE",))
+    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [active])
+    stopped: list[tuple[int, Path, int, bool]] = []
+
+    monkeypatch.setattr(
+        "ghidra_manager.manager.stop_managed_ghidra",
+        lambda pid, install, *, timeout, force: stopped.append((pid, install, timeout, force)),
+    )
+
+    lines = manager.stop_instance("demo", timeout=3, force=True)
+
+    assert stopped == [(20, manager.paths.ghidra / "12.1.2", 3, True)]
+    assert lines == ["Stopped Ghidra PID 20 for project demo."]
+
+
+def test_stop_accepts_exact_pid_and_rejects_unknown_target(monkeypatch, tmp_path: Path) -> None:
+    active = Instance(8089, 20, "demo")
+    manager, _ = _manager(monkeypatch, tmp_path, lambda _: [active])
+    monkeypatch.setattr("ghidra_manager.manager.stop_managed_ghidra", lambda *_args, **_kw: None)
+
+    assert manager.stop_instance("20") == ["Stopped Ghidra PID 20 for project demo."]
+    with pytest.raises(ManagerError, match="project name: missing"):
+        manager.stop_instance("missing")
+
+
+def test_restart_resolves_project_before_stop_and_waits_for_readiness(
+    monkeypatch, tmp_path: Path
+) -> None:
+    active = Instance(8089, 20, "demo", ("DEMO.EXE",))
+    restarted = Instance(8089, 21, "demo", ("DEMO.EXE",))
+    scans = iter([[active], [], [restarted]])
+    manager, project = _manager(monkeypatch, tmp_path, lambda _: next(scans))
+    stopped: list[int] = []
+
+    def start(_install, selected, _java, log):  # type: ignore[no-untyped-def]
+        assert selected == project.resolve()
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("", encoding="utf-8")
+        return Mock(pid=10, poll=lambda: None)
+
+    monkeypatch.setattr(
+        "ghidra_manager.manager.stop_managed_ghidra",
+        lambda pid, *_args, **_kw: stopped.append(pid),
+    )
+    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.manager.start_ghidra_instance", start)
+    monkeypatch.setattr("ghidra_manager.manager.time.sleep", lambda _: None)
+
+    lines = manager.restart_instance("20", program="DEMO.EXE", timeout=5)
+
+    assert stopped == [20]
+    assert lines[0] == "Stopped Ghidra PID 20 for project demo."
+    assert "MCP port 8089 | PID 21 | project demo" in lines[-2]

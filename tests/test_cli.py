@@ -245,6 +245,72 @@ def test_open_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-d
     assert capsys.readouterr().out == "GhidraMCP instance ready:\n"
 
 
+def test_stop_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def stop_instance(
+            self,
+            target: str,
+            *,
+            timeout: int,
+            force: bool,
+            base_port: int,
+        ) -> list[str]:
+            assert (target, timeout, force, base_port) == ("123", 5, True, 9000)
+            return ["Stopped Ghidra PID 123 for project demo."]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(["stop", "123", "--timeout", "5", "--force", "--base-port", "9000"]) == 0
+    )
+    assert capsys.readouterr().out == "Stopped Ghidra PID 123 for project demo.\n"
+
+
+def test_restart_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeManager:
+        def restart_instance(
+            self,
+            target: str,
+            *,
+            program: str | None,
+            timeout: int,
+            stop_timeout: int,
+            force: bool,
+            base_port: int,
+        ) -> list[str]:
+            assert (target, program, timeout, stop_timeout, force, base_port) == (
+                "demo",
+                "DEMO.EXE",
+                30,
+                5,
+                True,
+                9000,
+            )
+            return ["GhidraMCP instance ready:"]
+
+    monkeypatch.setattr(cli.Manager, "discover", lambda: FakeManager())
+
+    assert (
+        cli.run(
+            [
+                "restart",
+                "demo",
+                "--program",
+                "DEMO.EXE",
+                "--timeout",
+                "30",
+                "--stop-timeout",
+                "5",
+                "--force",
+                "--base-port",
+                "9000",
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == "GhidraMCP instance ready:\n"
+
+
 def test_launch_multi_options(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeManager:
         def launch_multi(

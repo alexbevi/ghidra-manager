@@ -77,6 +77,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=_base_port,
         default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
     )
+    stop = commands.add_parser(
+        "stop", help="Stop one responding Ghidra instance by project name or PID"
+    )
+    stop.add_argument("target")
+    stop.add_argument("--timeout", type=int, default=10)
+    stop.add_argument("--force", action="store_true")
+    stop.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
+    restart = commands.add_parser(
+        "restart", help="Restart one responding Ghidra instance by project name or PID"
+    )
+    restart.add_argument("target")
+    restart.add_argument("--program")
+    restart.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("GHIDRA_MCP_LAUNCH_TIMEOUT", "180")),
+    )
+    restart.add_argument("--stop-timeout", type=int, default=10)
+    restart.add_argument("--force", action="store_true")
+    restart.add_argument(
+        "--base-port",
+        type=_base_port,
+        default=int(os.environ.get("GHIDRA_MCP_BASE_PORT", DEFAULT_PORT)),
+    )
     launch = commands.add_parser(
         "launch", help="Launch one active Ghidra with JDK 21", add_help=False
     )
@@ -231,6 +259,26 @@ def run(argv: Sequence[str] | None = None) -> int:
             args.project,
             program=args.program,
             timeout=args.timeout,
+            base_port=args.base_port,
+        ):
+            print(line)
+        return 0
+    if args.command == "stop":
+        for line in Manager.discover().stop_instance(
+            args.target,
+            timeout=args.timeout,
+            force=args.force,
+            base_port=args.base_port,
+        ):
+            print(line)
+        return 0
+    if args.command == "restart":
+        for line in Manager.discover().restart_instance(
+            args.target,
+            program=args.program,
+            timeout=args.timeout,
+            stop_timeout=args.stop_timeout,
+            force=args.force,
             base_port=args.base_port,
         ):
             print(line)

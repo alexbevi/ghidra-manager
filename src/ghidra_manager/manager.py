@@ -50,7 +50,7 @@ from ghidra_manager.plugins import (
     resolve_plugin_source,
     validate_plugin_archive,
 )
-from ghidra_manager.processes import managed_ghidra_running
+from ghidra_manager.processes import managed_ghidra_running, stop_managed_ghidra
 from ghidra_manager.releases import (
     ReleaseClient,
     file_digest,
@@ -666,6 +666,48 @@ class Manager:
             f"{log_path}."
         )
 
+    def stop_instance(
+        self,
+        target: str,
+        *,
+        timeout: int = 10,
+        force: bool = False,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[str]:
+        pair = self._require_active_pair()
+        self._require_mcp(pair)
+        instance = self._resolve_instance_target(target, self.instance_discovery(base_port))
+        install = self.paths.ghidra / pair.ghidra_version
+        stop_managed_ghidra(instance.pid, install, timeout=timeout, force=force)
+        return [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
+
+    def restart_instance(
+        self,
+        target: str,
+        *,
+        program: str | None = None,
+        timeout: int = 180,
+        stop_timeout: int = 10,
+        force: bool = False,
+        base_port: int = DEFAULT_PORT,
+    ) -> list[str]:
+        pair = self._require_active_pair()
+        self._require_mcp(pair)
+        instance = self._resolve_instance_target(target, self.instance_discovery(base_port))
+        project_path = self._resolve_project(instance.project)
+        install = self.paths.ghidra / pair.ghidra_version
+        stop_managed_ghidra(instance.pid, install, timeout=stop_timeout, force=force)
+        lines = [f"Stopped Ghidra PID {instance.pid} for project {instance.project}."]
+        lines.extend(
+            self.open_project(
+                str(project_path),
+                program=program,
+                timeout=timeout,
+                base_port=base_port,
+            )
+        )
+        return lines
+
     def launch(self, arguments: list[str]) -> tuple[str, int]:
         store = StateStore(self.paths)
         state = store.load()
@@ -840,6 +882,21 @@ class Manager:
             raise ManagerError(f"No responding GhidraMCP instance has project name: {project}")
         if len(matches) != 1:
             raise ManagerError(f"Multiple responding instances have project name: {project}")
+        return matches[0]
+
+    @staticmethod
+    def _resolve_instance_target(target: str, instances: list[Instance]) -> Instance:
+        if target.isdecimal():
+            pid = int(target)
+            matches = [item for item in instances if item.pid == pid]
+            description = f"PID {pid}"
+        else:
+            matches = [item for item in instances if item.project == target]
+            description = f"project name: {target}"
+        if not matches:
+            raise ManagerError(f"No responding GhidraMCP instance has {description}")
+        if len(matches) != 1:
+            raise ManagerError(f"Multiple responding GhidraMCP instances have {description}")
         return matches[0]
 
     def _resolve_project(self, value: str) -> Path:

@@ -22,6 +22,9 @@ do not hardcode release versions or platform paths.
 - List recorded project paths with `ghidra-manager projects`.
 - Open and verify one recorded project with `ghidra-manager open PROJECT`.
 - List responding GhidraMCP processes with `ghidra-manager instances`.
+- Stop or restart one responding managed process with
+  `ghidra-manager stop PROJECT_OR_PID` or
+  `ghidra-manager restart PROJECT_OR_PID`.
 - Restore the retained compatible pair with `ghidra-manager rollback`.
 - Register the stdio bridge with
   `codex mcp add ghidra -- ghidra-manager bridge`.
@@ -62,6 +65,9 @@ if source resolution, compilation, validation, or activation fails.
 3. If `open` times out, confirm CodeBrowser is open, GhidraMCP is enabled, and
    its server is started from the Ghidra Tools menu, then inspect the reported
    log.
+4. Use `stop` or `restart` only with the exact project name or PID reported by
+   `instances`. The manager verifies the process belongs to the active managed
+   Ghidra installation before signaling it.
 
 Use `launch-multi` with two or more distinct `.gpr` paths when separate live
 projects are needed. Inspect its retained `launch-logs/` entry if startup

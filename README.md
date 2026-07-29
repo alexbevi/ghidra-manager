@@ -44,6 +44,8 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager plugins install PLUGIN` | `mcp` or `ghidra-lx-loader` | `Installed plugin mcp <version> for Ghidra <version>.` |
 | `ghidra-manager plugins remove PLUGIN` | `mcp` or `ghidra-lx-loader` | `Removed plugin mcp from Ghidra <version>.` |
 | `ghidra-manager open PROJECT` | `--program PROGRAM`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instance ready:` |
+| `ghidra-manager stop PROJECT_OR_PID` | `--timeout SECONDS`, `--force`, `--base-port PORT` | `Stopped Ghidra PID <pid> for project <project>.` |
+| `ghidra-manager restart PROJECT_OR_PID` | `--program PROGRAM`, `--timeout SECONDS`, `--stop-timeout SECONDS`, `--force`, `--base-port PORT` | `GhidraMCP instance ready:` |
 | `ghidra-manager launch [GHIDRA_ARGS...]` | Remaining arguments pass through to Ghidra | `Launching Ghidra <version> with JDK 21...` |
 | `ghidra-manager launch-multi [PROJECT.gpr ...]` | `--count N`, `--timeout SECONDS`, `--base-port PORT` | `GhidraMCP instances ready:` |
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
@@ -325,6 +327,20 @@ MCP port 8089 | PID <pid> | project ripper | http://127.0.0.1:8089
 `projects` reads Ghidra's settings registry, while `instances` reports live
 GhidraMCP endpoints. A running Project Window does not appear in `instances`
 until CodeBrowser is open and the plugin server is active.
+
+Stop or restart one responding instance by its exact project name or PID:
+
+```bash
+ghidra-manager stop ripper
+ghidra-manager restart ripper --program RIPPER.LE
+```
+
+Both commands verify that the MCP-reported PID belongs to the active managed
+Ghidra installation before signaling it. A graceful stop waits 10 seconds by
+default. `--force` permits a kill only after that timeout; it does not bypass
+the ownership check. Restart resolves the recorded project before stopping the
+process, then uses the same readiness checks and retained startup log as
+`open`.
 
 Launch one process per project and wait for new MCP endpoints:
 
