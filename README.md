@@ -49,7 +49,6 @@ brackets. Running `ghidra-manager` without a subcommand is equivalent to
 | `ghidra-manager bridge [BRIDGE_ARGS...]` | Remaining arguments pass through to the bridge | `<stdio bridge starts and waits for MCP traffic>` |
 | `ghidra-manager compare SOURCE_PROJECT TARGET_PROJECT` | `--base-port PORT` | `Plan saved: <manager-home>/compare-plans/<plan>.json` |
 | `ghidra-manager compare --apply PLAN` | No source or target arguments | `Applied <count> operations to <target>.` |
-| `ghidra-manager coverage COMMAND` | `init`, `scan`, `seed`, `validate`, `report`, `diff`, `plans`, `apply` | `Coverage plan saved: <repository>/reports/coverage/plans/<plan>.json` |
 | `ghidra-manager instances` | `--base-port PORT` | `MCP port 8089` |
 
 `launch` and `bridge` deliberately pass remaining arguments through rather than
@@ -227,7 +226,6 @@ Set `GHIDRA_MANAGER_HOME` to override this location.
 ├── gradle-cache/
 ├── launch-logs/
 ├── compare-plans/
-├── coverage/blobs/
 ├── python/
 └── uv-cache/
 ```
@@ -507,132 +505,6 @@ unsaved in Ghidra for review or undo.
 `compare` requires two distinct responding project instances. For two programs
 inside one project, use the full-path MCP workflow in the RIPPER example instead
 of trying to launch the same project twice.
-
-## Track Reimplementation Coverage
-
-Coverage tracking relates a Ghidra-analyzed source binary to an external
-reimplementation without treating a function mention or commit message as
-proof of completed behavior. Generated evidence and human-reviewed coverage
-statuses remain separate, and no coverage command mutates a Ghidra program.
-
-Initialize a local coverage workspace from the reimplementation checkout:
-
-```bash
-ghidra-manager coverage init \
-  --repository /path/to/scummvm \
-  --adapter scummvm \
-  --project ripper \
-  --program /RIPPER.LE \
-  --scope engines/ripper
-```
-
-The default workspace is `reports/coverage/` inside that repository. The
-command adds `/reports/coverage/` to the checkout's local
-`.git/info/exclude`; it does not edit the tracked `.gitignore`. Profiles,
-reviewed ledgers, snapshots, evidence, retained plans, and reports stay local
-and uncommitted. The manager home contains only disposable content-addressed
-scan payloads.
-
-With the exact project and program open, create a read-only scan plan:
-
-```bash
-ghidra-manager coverage scan
-ghidra-manager coverage plans
-ghidra-manager coverage apply reports/coverage/plans/<plan>.json
-ghidra-manager coverage seed
-ghidra-manager coverage apply reports/coverage/plans/<seed-plan>.json
-```
-
-`scan` reads the program, Git history, source comments, architecture anchors,
-and adapter registries. It refuses a dirty reimplementation checkout unless
-`--allow-dirty` is supplied. A dirty scan records the tracked diff and included
-untracked-file content in its repository fingerprint.
-
-Applying a plan rechecks the profile, reviewed ledger, repository revision and
-content, snapshot identity, and live Ghidra program when the scan was live.
-Apply publishes immutable snapshot/evidence files and updates active pointers,
-but never changes `ledger.json`. Reviewers edit that JSON ledger manually and
-validate it:
-
-```bash
-ghidra-manager coverage validate
-ghidra-manager coverage report
-```
-
-After a later scan, retained evidence links may refer to the prior immutable
-evidence file. Validation accepts those historical references, reports them as
-stale rather than current traceability, and lets `seed` replace generated links
-on still-unreviewed records. Reviewed records remain untouched so rescanning
-cannot silently rewrite their supporting evidence.
-
-`seed` automates the ledger bookkeeping after a scan has been applied. It
-creates a retained plan that adds missing functions and behavioral units as
-`unreviewed`/`unknown`, attaches exact generated evidence to functions, and
-publishes a deterministic `review-queue.json`. Applying a seed plan may refresh
-evidence, subsystem, or reachability on records that are still unreviewed. It
-never changes an already reviewed scope, status, notes, deviations, or
-verification record.
-
-Review-queue suggestions are advisory. The seed may suggest `partial` only
-when an unsupported diagnostic is explicitly linked to the same original
-function. A diagnostic elsewhere in the same source file raises review
-priority but leaves the suggestion `unknown`. Seed never suggests `complete`,
-`equivalent`, `not_applicable`, or a verified state. Candidates are ordered by
-deterministic evidence, diagnostic, and reachability factors so review can
-begin with the strongest mappings.
-
-The ScummVM RIPPER adapter also seeds a small catalog of player-visible
-scenarios, including startup, new-game bootstrap, scripted transitions,
-puzzles, WAC, Cyber, combat, save/restore, and chapter progression. These are
-ordinary unreviewed behavioral records with `unit_type: "scenario"`; the
-adapter does not claim that they work. Reviewers provide their scope, status,
-player impact, known deviations, and verification records in `ledger.json`.
-
-Reports lead with assessment readiness and evidence quality before showing any
-coverage ratio. When no in-scope denominator has been reviewed, the Markdown
-report says that implementation coverage and gap analysis are unavailable
-instead of presenting `0 / 0` as a result. If a current review queue exists,
-the report includes its suggested in-scope count, confidence distribution, and
-subsystem backlog. Evidence-link counts remain traceability signals rather than
-completion claims.
-
-The engineering section distinguishes function traceability, conservative
-reviewed coverage, the partial-inclusive coverage ceiling, behavioral-unit
-status, verification state, and instruction-weighted views. Behavioral coverage
-is the primary functional signal when reviewed units exist. Reports include a
-subsystem matrix with reviewed totals, status counts, and independently
-verified-unit counts; function-count and instruction-weighted metrics remain
-engineering detail. A player-scenario table shows scope, status,
-verification, and player impact separately. The report also selects
-deterministic representative completed, equivalent, partial, and missing
-findings, including player impact, known missing branches, and deviations when
-reviewers supplied them. A stored snapshot supports scanning and report
-regeneration without a live Ghidra instance:
-
-```bash
-ghidra-manager coverage scan \
-  --offline-snapshot sha256:<snapshot-id>
-```
-
-Compare two canonical reports explicitly:
-
-```bash
-ghidra-manager coverage diff base.json head.json \
-  --json coverage-diff.json \
-  --markdown coverage-diff.md
-```
-
-Diffs retain exact record-level added, removed, resolved, reopened,
-reclassified, verification, and evidence-only changes. Their Markdown begins
-with player-visible newly covered behavior, regressions, reviewed new gaps,
-verification upgrades or downgrades, and critical-progression changes. Merely
-discovering a new unreviewed source unit records it as added; it is not labeled
-as a new gap.
-
-The initial ScummVM adapter recognizes RIPPER function/address anchors, script
-opcodes, scene actions, architecture references, and unsupported diagnostics.
-Those observations seed evidence only. `complete`, `partial`, `equivalent`,
-`missing`, `not_applicable`, and verification states are reviewer decisions.
 
 ## Validation
 
