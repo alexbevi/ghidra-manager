@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ghidra_manager.errors import ManagerError
-from ghidra_manager.models import ResolvedPluginSource
+from ghidra_manager.models import ReleaseAsset, ResolvedPluginSource
 from ghidra_manager.releases import ReleaseClient
 from ghidra_manager.storage import parse_properties
 
@@ -27,16 +27,21 @@ class PluginDefinition:
     build_task: str
     artifact_pattern: str
     runtime_files: tuple[tuple[str, str], ...] = ()
+    runtime_asset_patterns: tuple[tuple[str, str], ...] = ()
 
     def as_dict(self, *, selected: bool) -> dict[str, object]:
         value = asdict(self)
         value["id"] = value.pop("plugin_id")
         value["runtime_files"] = dict(self.runtime_files)
+        value["runtime_assets"] = dict(value.pop("runtime_asset_patterns"))
         value["selected"] = selected
         return value
 
     def runtime_file(self, name: str) -> str | None:
         return dict(self.runtime_files).get(name)
+
+    def runtime_asset_pattern(self, name: str) -> str | None:
+        return dict(self.runtime_asset_patterns).get(name)
 
 
 def _string(raw: dict[str, Any], key: str) -> str:
@@ -86,6 +91,27 @@ def parse_registry(raw: object) -> tuple[PluginDefinition, ...]:
         )
         if any(not key for key, _ in runtime_files):
             raise ManagerError(f"Invalid runtime file name for plugin: {plugin_id}")
+        runtime_assets_raw = entry.get("runtime_assets", {})
+        if not isinstance(runtime_assets_raw, dict):
+            raise ManagerError(f"Invalid runtime assets for plugin: {plugin_id}")
+        runtime_asset_patterns = tuple(
+            sorted(
+                (
+                    key if isinstance(key, str) and key else "",
+                    _string({"value": value}, "value"),
+                )
+                for key, value in runtime_assets_raw.items()
+            )
+        )
+        if any(not key for key, _ in runtime_asset_patterns):
+            raise ManagerError(f"Invalid runtime asset name for plugin: {plugin_id}")
+        for _, pattern in runtime_asset_patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ManagerError(
+                    f"Invalid runtime asset pattern for plugin: {plugin_id}: {pattern}"
+                ) from exc
         build_task = _string(entry, "build_task")
         if not re.fullmatch(r"[A-Za-z0-9:_-]+", build_task):
             raise ManagerError(f"Invalid plugin build task: {build_task}")
@@ -102,6 +128,7 @@ def parse_registry(raw: object) -> tuple[PluginDefinition, ...]:
                     _string(entry, "artifact_pattern"), "artifact_pattern"
                 ),
                 runtime_files=runtime_files,
+                runtime_asset_patterns=runtime_asset_patterns,
             )
         )
         seen.add(plugin_id)
@@ -134,6 +161,7 @@ def resolve_plugin_source(
     tag = release.get("tag_name")
     if not isinstance(tag, str) or not tag:
         raise ManagerError(f"Latest {definition.plugin_id} release has no tag")
+    runtime_assets = _resolve_runtime_assets(release, definition)
     reference = client.get_json(f"repos/{definition.repository}/git/ref/tags/{tag}")
     if not isinstance(reference, dict) or not isinstance(reference.get("object"), dict):
         raise ManagerError(f"Unable to resolve release tag for {definition.plugin_id}: {tag}")
@@ -152,6 +180,7 @@ def resolve_plugin_source(
                 tag=tag,
                 commit=sha.lower(),
                 archive_url=(f"https://api.github.com/repos/{definition.repository}/zipball/{sha}"),
+                runtime_assets=runtime_assets,
             )
         if target_type != "tag":
             break
@@ -160,6 +189,46 @@ def resolve_plugin_source(
             break
         target = annotated["object"]
     raise ManagerError(f"Release tag does not resolve to one commit: {definition.plugin_id} {tag}")
+
+
+def _resolve_runtime_assets(
+    release: dict[str, object],
+    definition: PluginDefinition,
+) -> tuple[tuple[str, ReleaseAsset], ...]:
+    raw_assets = release.get("assets", [])
+    if not isinstance(raw_assets, list):
+        raise ManagerError(f"Latest {definition.plugin_id} release has an invalid asset list")
+    resolved: list[tuple[str, ReleaseAsset]] = []
+    for runtime_name, pattern in definition.runtime_asset_patterns:
+        matches = [
+            raw
+            for raw in raw_assets
+            if isinstance(raw, dict)
+            and isinstance(raw.get("name"), str)
+            and re.fullmatch(pattern, raw["name"])
+        ]
+        if not matches:
+            continue
+        if len(matches) != 1:
+            raise ManagerError(
+                f"Expected one {definition.plugin_id} runtime asset matching: {pattern}"
+            )
+        match = matches[0]
+        name = match["name"]
+        url = match.get("browser_download_url")
+        digest = match.get("digest")
+        if (
+            not isinstance(name, str)
+            or Path(name).name != name
+            or not isinstance(url, str)
+            or not isinstance(digest, str)
+            or re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest) is None
+        ):
+            raise ManagerError(
+                f"Runtime asset is missing GitHub SHA-256 metadata: {definition.plugin_id} {name}"
+            )
+        resolved.append((runtime_name, ReleaseAsset(name=name, url=url, digest=digest)))
+    return tuple(resolved)
 
 
 def plugin_extension_properties(archive: Path, definition: PluginDefinition) -> dict[str, str]:

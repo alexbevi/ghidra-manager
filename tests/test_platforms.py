@@ -116,6 +116,25 @@ def test_bridge_receives_managed_uv_environment(monkeypatch, tmp_path: Path) -> 
     ]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv fixture")
+def test_bridge_wheel_runs_published_console_script(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    uv = tmp_path / "uv"
+    output = tmp_path / "arguments"
+    uv.write_text(
+        f"#!/bin/sh\nprintf '%s' \"$*\" > '{output}'\n",
+        encoding="utf-8",
+    )
+    uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr("ghidra_manager.platforms.shutil.which", lambda _: str(uv))
+    wheel = tmp_path / "ghidra_mcp_bridge-6.0.0-py3-none-any.whl"
+
+    assert run_bridge(wheel, ["--help"], tmp_path / "python", tmp_path / "cache") == 0
+    assert output.read_text(encoding="utf-8") == (
+        "run --python 3.13 --managed-python --no-project "
+        f"--with {wheel} bridge-mcp-ghidra --help"
+    )
+
+
 @pytest.mark.parametrize(
     ("platform", "wrapper_name"), [("linux", "gradlew"), ("win32", "gradlew.bat")]
 )

@@ -39,6 +39,7 @@ def _asset(name: str, content: bytes) -> dict[str, str]:
 class SyncClient:
     def __init__(self) -> None:
         self.downloads: list[str] = []
+        self.runtime_assets: dict[str, bytes] = {}
         self.ghidra = _zip(
             {
                 "ghidra_12.1.2_PUBLIC/ghidraRun": (b"#!/bin/sh\n", 0o755),
@@ -77,7 +78,11 @@ class SyncClient:
 
     def download(self, url: str, destination: Path) -> None:
         self.downloads.append(url)
-        destination.write_bytes(self.source if "/zipball/" in url else self.ghidra)
+        destination.write_bytes(
+            self.source
+            if "/zipball/" in url
+            else self.runtime_assets.get(url, self.ghidra)
+        )
 
 
 def _fake_build(
@@ -100,6 +105,30 @@ def _fake_build(
                     0o644,
                 ),
                 "GhidraMCP/lib/plugin.jar": (b"plugin", 0o644),
+            }
+        )
+    )
+    return "BUILD SUCCESSFUL"
+
+
+def _fake_build_v6(
+    _install: Path,
+    source: Path,
+    _task: str,
+    _java_home: Path,
+    _cache: Path,
+) -> str:
+    output = source / "build/distributions/GhidraMCP-6.0.0.zip"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(
+        _zip(
+            {
+                "GhidraMCP/extension.properties": (
+                    b"name=GhidraMCP\n"
+                    b"description=Ghidra MCP Plugin version 6.0.0.\n"
+                    b"version=12.1.2\n",
+                    0o644,
+                )
             }
         )
     )
@@ -159,6 +188,38 @@ def test_plugin_install_is_cached_and_rollback_restores_empty_set(
 
     assert manager.rollback() == ["Rolled back to Ghidra 12.1.2; plugins none."]
     assert not installed.exists()
+
+
+def test_plugin_install_uses_digest_verified_runtime_wheel(
+    monkeypatch, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    paths = ManagerPaths(tmp_path / "managed")
+    client = SyncClient()
+    wheel = b"published wheel"
+    asset = _asset("ghidra_mcp_bridge-6.0.0-py3-none-any.whl", wheel)
+    client.responses["repos/bethington/ghidra-mcp/releases/latest"] = {
+        "tag_name": "v6.0.0",
+        "assets": [asset],
+    }
+    client.responses["repos/bethington/ghidra-mcp/git/ref/tags/v6.0.0"] = {
+        "object": {"type": "commit", "sha": COMMIT}
+    }
+    client.runtime_assets[asset["browser_download_url"]] = wheel
+    client.source = _zip({"source/README.md": (b"source", 0o644)})
+    manager = Manager(paths, client, process_check=lambda _: False)
+    monkeypatch.setattr("ghidra_manager.manager.find_java21", lambda: tmp_path / "jdk")
+    monkeypatch.setattr("ghidra_manager.manager.run_plugin_build", _fake_build_v6)
+    manager.sync()
+
+    assert manager.plugin_install("mcp") == ["Installed plugin mcp 6.0.0 for Ghidra 12.1.2."]
+    state = StateStore(paths).load()
+    pair = StateStore(paths).pair(state.current or "")
+    plugin = pair.plugin("mcp")
+    assert plugin is not None
+    bridge = plugin.runtime_file("bridge")
+    assert bridge is not None
+    assert bridge.endswith(".whl")
+    assert (paths.home / bridge).read_bytes() == wheel
 
 
 def test_plugin_install_refuses_running_ghidra_without_changing_state(

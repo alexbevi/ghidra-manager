@@ -386,7 +386,8 @@ Register the managed stdio bridge with Codex:
 codex mcp add ghidra -- ghidra-manager bridge
 ```
 
-The bridge uses uv-managed Python 3.13 and the upstream retained script:
+The bridge uses uv-managed Python 3.13 and the digest-verified runtime artifact
+published with the selected GhidraMCP release:
 
 ```bash
 ghidra-manager bridge --help

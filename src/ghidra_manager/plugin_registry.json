@@ -9,9 +9,11 @@
       "id": "mcp",
       "name": "GhidraMCP",
       "repository": "bethington/ghidra-mcp",
+      "runtime_assets": {
+        "bridge": "^ghidra_mcp_bridge-[0-9].*-py3-none-any\\.whl$"
+      },
       "runtime_files": {
-        "bridge": "bridge_mcp_ghidra.py",
-        "requirements": "requirements.txt"
+        "bridge": "bridge_mcp_ghidra.py"
       }
     },
     {
@@ -23,6 +25,7 @@
       "id": "ghidra-lx-loader",
       "name": "Ghidra LX Loader",
       "repository": "yetmorecode/ghidra-lx-loader",
+      "runtime_assets": {},
       "runtime_files": {}
     }
   ],

@@ -174,7 +174,7 @@ def start_ghidra_instance(
 
 
 def run_bridge(
-    script: Path,
+    runtime: Path,
     arguments: list[str],
     python_dir: Path,
     cache_dir: Path,
@@ -192,10 +192,12 @@ def run_bridge(
         "3.13",
         "--managed-python",
         "--no-project",
-        "--script",
-        str(script),
-        *arguments,
     ]
+    if runtime.suffix == ".whl":
+        command.extend(["--with", str(runtime), "bridge-mcp-ghidra"])
+    else:
+        command.extend(["--script", str(runtime)])
+    command.extend(arguments)
     try:
         return subprocess.run(command, check=False, env=environment).returncode
     except OSError as exc:

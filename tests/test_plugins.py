@@ -14,6 +14,9 @@ def test_bundled_registry_contains_initial_plugins() -> None:
 
     assert [plugin.plugin_id for plugin in plugins] == ["mcp", "ghidra-lx-loader"]
     assert plugin_definition("mcp").runtime_file("bridge") == "bridge_mcp_ghidra.py"
+    assert "ghidra_mcp_bridge" in (
+        plugin_definition("mcp").runtime_asset_pattern("bridge") or ""
+    )
     assert plugin_definition("ghidra-lx-loader").extension_name == "LxLoader"
 
 
@@ -77,6 +80,41 @@ def test_resolve_plugin_source_dereferences_annotated_tag() -> None:
     assert source.version == "5.14.2"
     assert source.commit == "a" * 40
     assert source.archive_url.endswith(f"/zipball/{'a' * 40}")
+    assert source.runtime_assets == ()
+
+
+def test_resolve_plugin_source_includes_digest_verified_runtime_asset() -> None:
+    digest = f"sha256:{'1' * 64}"
+
+    class Client:
+        responses = {
+            "repos/bethington/ghidra-mcp/releases/latest": {
+                "tag_name": "v6.0.0",
+                "assets": [
+                    {
+                        "name": "ghidra_mcp_bridge-6.0.0-py3-none-any.whl",
+                        "browser_download_url": "https://download.test/bridge.whl",
+                        "digest": digest,
+                    }
+                ],
+            },
+            "repos/bethington/ghidra-mcp/git/ref/tags/v6.0.0": {
+                "object": {"type": "commit", "sha": "a" * 40}
+            },
+        }
+
+        def get_json(self, endpoint: str) -> object:
+            return self.responses[endpoint]
+
+        def download(self, url, destination) -> None:  # type: ignore[no-untyped-def]
+            raise AssertionError("resolution must not download assets")
+
+    source = resolve_plugin_source(Client(), plugin_definition("mcp"))
+
+    assert len(source.runtime_assets) == 1
+    name, asset = source.runtime_assets[0]
+    assert name == "bridge"
+    assert asset.digest == digest
 
 
 def test_registry_rejects_shell_build_task() -> None:

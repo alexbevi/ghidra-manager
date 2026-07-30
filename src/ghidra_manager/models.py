@@ -70,6 +70,7 @@ class ResolvedPluginSource:
     tag: str
     commit: str
     archive_url: str
+    runtime_assets: tuple[tuple[str, ReleaseAsset], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -795,15 +795,34 @@ class Manager:
         archive = stage / "extension.zip"
         shutil.copy2(artifacts[0], archive)
         runtime_files: list[tuple[str, str]] = []
-        for name, relative in definition.runtime_files:
-            runtime_source = source_root / relative
-            if not runtime_source.is_file():
+        source_runtime = dict(definition.runtime_files)
+        release_runtime = dict(source.runtime_assets)
+        runtime_names = sorted(
+            set(source_runtime)
+            | {name for name, _pattern in definition.runtime_asset_patterns}
+        )
+        for name in runtime_names:
+            asset = release_runtime.get(name)
+            relative = source_runtime.get(name)
+            if asset is not None:
+                runtime_target = stage / "runtime" / asset.name
+                runtime_target.parent.mkdir(parents=True, exist_ok=True)
+                self.client.download(asset.url, runtime_target)
+                verify_digest(runtime_target, asset.digest)
+            elif relative is not None:
+                runtime_source = source_root / relative
+                if not runtime_source.is_file():
+                    raise ManagerError(
+                        f"Plugin source is missing runtime file: "
+                        f"{definition.plugin_id} {relative}"
+                    )
+                runtime_target = stage / "runtime" / Path(relative).name
+                runtime_target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(runtime_source, runtime_target)
+            else:
                 raise ManagerError(
-                    f"Plugin source is missing runtime file: {definition.plugin_id} {relative}"
+                    f"Plugin release is missing runtime asset: {definition.plugin_id} {name}"
                 )
-            runtime_target = stage / "runtime" / Path(relative).name
-            runtime_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(runtime_source, runtime_target)
             runtime_files.append(
                 (
                     name,
