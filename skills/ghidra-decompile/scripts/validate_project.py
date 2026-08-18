@@ -54,6 +54,7 @@ RUNTIME_COMPARISON_STATUSES = {
     "mismatched",
     "inconclusive",
 }
+RESOURCE_STATUSES = {"discovered", "catalogued", "traced", "unresolved", "superseded"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -280,6 +281,61 @@ def validate_runtime(path: Path) -> list[str]:
     return errors
 
 
+def validate_resources(path: Path) -> list[str]:
+    root_fields = ("parser_roots", "dispatcher_roots", "consumer_roots")
+    required = {
+        "id",
+        "data_set",
+        "canonical_id",
+        "kind",
+        "container",
+        "member",
+        "digest",
+        "dispatch_values",
+        *root_fields,
+        "reachability",
+        "evidence_ids",
+        "status",
+        "source_task",
+        "timestamp",
+    }
+    errors = validate_jsonl(path, required)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        prefix = f"{path.name}:{line_number}"
+        if record.get("status") not in RESOURCE_STATUSES:
+            errors.append(f"{prefix}: invalid resource status")
+        if not isinstance(record.get("canonical_id"), str) or not record["canonical_id"]:
+            errors.append(f"{prefix}: canonical_id is required")
+        digest = record.get("digest")
+        if digest is not None and (
+            not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest)
+        ):
+            errors.append(f"{prefix}: digest must be null or sha256:<64 lowercase hex>")
+        reachability = record.get("reachability")
+        if not isinstance(reachability, dict) or reachability.get(
+            "status"
+        ) not in REACHABILITY_STATUSES:
+            errors.append(f"{prefix}: invalid resource reachability")
+        roots: list[object] = []
+        for field in root_fields:
+            value = record.get(field)
+            if not isinstance(value, list):
+                errors.append(f"{prefix}: {field} must be an array")
+            else:
+                roots.extend(value)
+        if record.get("status") == "traced" and not roots:
+            errors.append(f"{prefix}: traced resource requires a program root")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -332,6 +388,11 @@ def validate(root: Path) -> list[str]:
             errors.extend(validate_runtime(runtime_path))
         if not (root / "traces").is_dir():
             errors.append("missing directory: traces")
+        resources_path = root / "resources.jsonl"
+        if not resources_path.is_file():
+            errors.append("missing file: resources.jsonl")
+        else:
+            errors.extend(validate_resources(resources_path))
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):

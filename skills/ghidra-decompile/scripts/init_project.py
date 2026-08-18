@@ -147,6 +147,17 @@ def main() -> int:
     if args.profile == "reimplementation":
         seed_tasks.append(
             {
+                "id": "index-resource-graph",
+                "kind": "resource-index",
+                "title": "Trace shipped resources through parsers and consumers",
+                "scope": {"resources": "goal-relevant"},
+                "authority": "read-only",
+                "status": "pending",
+                "depends_on": ["assess-analysis-fidelity"],
+            }
+        )
+        seed_tasks.append(
+            {
                 "id": "model-behavior-slices",
                 "kind": "behavior-recovery",
                 "title": "Model bounded observable behavior contracts",
@@ -157,6 +168,7 @@ def main() -> int:
                     "index-entry-graph",
                     "index-string-xrefs",
                     "index-indirect-targets",
+                    "index-resource-graph",
                 ],
             }
         )
@@ -189,6 +201,7 @@ def main() -> int:
     (output / "behaviors.jsonl").touch()
     (output / "coverage.jsonl").touch()
     (output / "runtime.jsonl").touch()
+    (output / "resources.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
         f"""# {args.program} Architecture
 
@@ -230,6 +243,10 @@ No reviewed coverage records.
 ## Runtime validation
 
 No runtime observations recorded.
+
+## Resource entry graph
+
+No resource records traced.
 
 ## Cross-version references
 

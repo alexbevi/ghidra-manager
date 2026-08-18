@@ -55,6 +55,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     assert (root / "behaviors.jsonl").is_file()
     assert (root / "coverage.jsonl").is_file()
     assert (root / "runtime.jsonl").is_file()
+    assert (root / "resources.jsonl").is_file()
     task_by_id = {task["id"]: task for task in tasks["tasks"]}
     assert task_by_id["index-entry-graph"]["depends_on"] == [
         "assess-analysis-fidelity"
@@ -108,6 +109,7 @@ def test_initializer_records_reimplementation_profile(tmp_path: Path) -> None:
     assert project["profile"] == "reimplementation"
     assert "model-behavior-slices" in {task["id"] for task in tasks["tasks"]}
     assert "capture-runtime-evidence" in {task["id"] for task in tasks["tasks"]}
+    assert "index-resource-graph" in {task["id"] for task in tasks["tasks"]}
     assert run_script(VALIDATE_SCRIPT, root).returncode == 0
 
 
@@ -221,3 +223,35 @@ def test_validator_requires_target_for_runtime_match(tmp_path: Path) -> None:
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "matched comparison requires a target observation" in result.stderr
+
+
+def test_validator_requires_program_root_for_traced_resource(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+    resource: dict[str, Any] = {
+        "id": "resource-prologue",
+        "data_set": "retail-v1.0",
+        "canonical_id": "PROLOGUE.RUN",
+        "kind": "compiled-scene-script",
+        "container": "SCRIPT.PL",
+        "member": "PROLOGUE.RUN",
+        "digest": "sha256:" + "1" * 64,
+        "dispatch_values": ["callback-opcode:0x24"],
+        "parser_roots": ["1234:0000"],
+        "dispatcher_roots": [],
+        "consumer_roots": [],
+        "reachability": {"status": "reachable", "route": "Prologue scene"},
+        "evidence_ids": ["ev-resource-001"],
+        "status": "traced",
+        "source_task": "index-resource-graph",
+        "timestamp": "2026-01-01T00:00:00Z",
+    }
+    resource_path = root / "resources.jsonl"
+    resource_path.write_text(json.dumps(resource) + "\n", encoding="utf-8")
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+    resource["parser_roots"] = []
+    resource_path.write_text(json.dumps(resource) + "\n", encoding="utf-8")
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "traced resource requires a program root" in result.stderr

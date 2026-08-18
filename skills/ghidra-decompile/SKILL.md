@@ -34,6 +34,8 @@ Prefer verified, conservative names over complete-looking speculation.
   before classifying implementation coverage or reporting progress.
 - Read [references/runtime-validation.md](references/runtime-validation.md) before
   claiming runtime-observed behavior or semantic parity.
+- Read [references/resource-entry-graphs.md](references/resource-entry-graphs.md)
+  when archives, scripts, media, saves, or other game data drive behavior.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -172,6 +174,12 @@ Start from all defensible roots, not only the nominal executable entry:
 - switch and jump tables;
 - function-pointer tables, vtables, callback arrays, and address-taken code;
 - script, event, resource, scene, command, or message dispatchers.
+
+For data-driven programs, inventory shipped resources and dispatch values before
+assuming the static call graph defines reachability. Record archive members,
+scripts, opcodes, action IDs, packet commands, save records, parsers,
+dispatchers, and runtime consumers in `resources.jsonl`. Use their references as
+graph roots alongside functions and strings.
 
 Walk callers and callees breadth-first, but prioritize frontier nodes with
 strong anchors: distinctive strings, imports, named globals, structured data,

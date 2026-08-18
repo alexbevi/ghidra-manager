@@ -16,6 +16,7 @@ Keep the state directory small and machine-readable:
 ├── behaviors.jsonl
 ├── coverage.jsonl
 ├── runtime.jsonl
+├── resources.jsonl
 └── ARCHITECTURE.md
 ```
 
@@ -65,6 +66,10 @@ classifications using `references/reachability-and-parity.md`.
 paired target comparisons using `references/runtime-validation.md`. Put raw
 logs, traces, screenshots, and state captures in `traces/` and reference them
 with relative paths.
+
+`resources.jsonl` is append-only. Store canonical game-data identities,
+dispatch values, parser/dispatcher/consumer roots, and shipped-data reachability
+using `references/resource-entry-graphs.md`.
 
 `ARCHITECTURE.md` is the human-readable confirmed model. Keep program identity,
 entry path, subsystem boundaries, dispatch tables, data model, cross-version
