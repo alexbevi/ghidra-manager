@@ -1,0 +1,7 @@
+interface:
+  display_name: "Ghidra Decompilation"
+  short_description: "Coordinate evidence-driven Ghidra decompilation"
+  default_prompt: "Use $ghidra-decompile to coordinate a goal-driven, evidence-based decompilation of the active Ghidra program."
+
+policy:
+  allow_implicit_invocation: false

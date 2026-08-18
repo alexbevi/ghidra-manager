@@ -14,15 +14,19 @@ The `ghidra-manager` Python command is the only supported user-facing
 entrypoint on Windows, Linux, and macOS.
 
 For Codex workflows, this repository also includes the
-[`ghidra-manager` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-manager/SKILL.md).
+[`ghidra-manager` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-manager/SKILL.md)
+and the
+[`ghidra-decompile` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-decompile/SKILL.md).
 Invoke
 `$ghidra-manager` to inspect managed state, choose reviewed plugins, launch and
 verify projects, connect the bridge, target exact programs inside a project,
 compare binaries, or work on the manager itself. The skill follows the same
 safety rules as the CLI: use `instances` as runtime truth, identify programs
 explicitly when more than one is open, and review comparison results before a
-write. The skill is maintained in the source repository and is not installed
-into Codex by the PyPI package.
+write. Invoke `$ghidra-decompile` for persistent, evidence-driven program
+recovery after the target Ghidra project and program are available. Both skills
+are maintained in the source repository and are not installed into Codex by the
+PyPI package.
 
 ## Command Summary
 
@@ -400,15 +404,35 @@ ghidra-manager bridge --help
 
 The bundled [`ghidra-manager` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-manager/SKILL.md) teaches
 Codex the manager's command boundaries, plugin lifecycle, launch checks, and
-comparison safeguards. The repository directory is the source of truth; install
-or link `skills/ghidra-manager` as `$CODEX_HOME/skills/ghidra-manager` and start
-a new Codex session to make `$ghidra-manager` available. Once the skill and
-bridge are available, a request can name the skill explicitly:
+comparison safeguards. The bundled
+[`ghidra-decompile` skill](https://github.com/alexbevi/ghidra-manager/blob/main/skills/ghidra-decompile/SKILL.md)
+coordinates persistent evidence, bounded analysis, verified Ghidra mutations,
+and completion audits.
+
+The repository directories are the source of truth. Install or link either
+skill into `$CODEX_HOME/skills` and start a new Codex session to make it
+available:
+
+```text
+$CODEX_HOME/skills/ghidra-manager -> <checkout>/skills/ghidra-manager
+$CODEX_HOME/skills/ghidra-decompile -> <checkout>/skills/ghidra-decompile
+```
+
+Keep checkout-local decompilation campaigns under `.ghidra-decompile/`; Git
+ignores that directory because its program evidence, transformed binaries, and
+other project-specific artifacts do not belong to the reusable skill.
+
+Once the skills and bridge are available, a request can name them explicitly:
 
 ```text
 Use $ghidra-manager to inspect the active Ghidra pair, discover the reviewed
 plugins, open the ripper project, and confirm its MCP program before making any
 changes.
+```
+
+```text
+Use $ghidra-decompile to recover the program model for the verified executable
+and keep the campaign under .ghidra-decompile/ripper-v1-05.
 ```
 
 The CLI identifies a live project; GhidraMCP identifies programs inside it.
