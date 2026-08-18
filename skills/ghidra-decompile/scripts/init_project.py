@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
         choices=("symbol-recovery", "reimplementation"),
         default="symbol-recovery",
     )
+    parser.add_argument("--target", choices=("generic", "scummvm"))
     parser.add_argument("--goal", default="")
     parser.add_argument("--slug")
     parser.add_argument("--max-workers", type=int, default=3)
@@ -52,16 +53,28 @@ def main() -> int:
         raise SystemExit(f"refusing to overwrite non-empty campaign: {output}")
     if args.max_workers < 1:
         raise SystemExit("--max-workers must be at least 1")
+    if args.profile == "symbol-recovery" and args.target is not None:
+        raise SystemExit("--target requires --profile reimplementation")
 
     output.mkdir(parents=True, exist_ok=True)
     timestamp = utc_now()
     slug = args.slug or slugify(args.program)
+    target_kind = args.target or ("generic" if args.profile == "reimplementation" else None)
     project = {
         "schema_version": 2,
         "campaign_slug": slug,
         "created_at": timestamp,
         "goal_objective": args.goal,
         "profile": args.profile,
+        "target": (
+            {
+                "kind": target_kind,
+                "repository": None,
+                "revision": None,
+            }
+            if target_kind is not None
+            else None
+        ),
         "ghidra": {
             "project": args.project,
             "program": args.program,
@@ -156,6 +169,18 @@ def main() -> int:
                 "depends_on": ["assess-analysis-fidelity"],
             }
         )
+        if target_kind == "scummvm":
+            seed_tasks.append(
+                {
+                    "id": "map-scummvm-implementation",
+                    "kind": "implementation-mapping",
+                    "title": "Map behavior contracts into the ScummVM engine",
+                    "scope": {"behaviors": "ready-for-implementation"},
+                    "authority": "read-only",
+                    "status": "pending",
+                    "depends_on": ["model-behavior-slices", "index-resource-graph"],
+                }
+            )
         seed_tasks.append(
             {
                 "id": "model-behavior-slices",
@@ -202,6 +227,7 @@ def main() -> int:
     (output / "coverage.jsonl").touch()
     (output / "runtime.jsonl").touch()
     (output / "resources.jsonl").touch()
+    (output / "mappings.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
         f"""# {args.program} Architecture
 
@@ -247,6 +273,10 @@ No runtime observations recorded.
 ## Resource entry graph
 
 No resource records traced.
+
+## Target implementation
+
+No behavior mappings recorded.
 
 ## Cross-version references
 

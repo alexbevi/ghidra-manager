@@ -17,6 +17,7 @@ Keep the state directory small and machine-readable:
 ├── coverage.jsonl
 ├── runtime.jsonl
 ├── resources.jsonl
+├── mappings.jsonl
 └── ARCHITECTURE.md
 ```
 
@@ -70,6 +71,10 @@ with relative paths.
 `resources.jsonl` is append-only. Store canonical game-data identities,
 dispatch values, parser/dispatcher/consumer roots, and shipped-data reachability
 using `references/resource-entry-graphs.md`.
+
+`mappings.jsonl` is append-only. Map behavior contracts to exact target files,
+symbols, implementation strategies, service substitutions, retained semantics,
+and validation routes. Use `references/scummvm-handoff.md` for ScummVM targets.
 
 `ARCHITECTURE.md` is the human-readable confirmed model. Keep program identity,
 entry path, subsystem boundaries, dispatch tables, data model, cross-version

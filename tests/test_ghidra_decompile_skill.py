@@ -20,7 +20,13 @@ def run_script(script: Path, *args: object) -> subprocess.CompletedProcess[str]:
     )
 
 
-def initialize_campaign(root: Path, *, profile: str = "symbol-recovery") -> None:
+def initialize_campaign(
+    root: Path,
+    *,
+    profile: str = "symbol-recovery",
+    target: str | None = None,
+) -> None:
+    target_args = ["--target", target] if target is not None else []
     result = run_script(
         INIT_SCRIPT,
         "--output",
@@ -33,6 +39,7 @@ def initialize_campaign(root: Path, *, profile: str = "symbol-recovery") -> None
         "/GAME.EXE",
         "--profile",
         profile,
+        *target_args,
     )
     assert result.returncode == 0, result.stderr
 
@@ -47,6 +54,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
 
     assert project["schema_version"] == 2
     assert project["profile"] == "symbol-recovery"
+    assert project["target"] is None
     assert project["derived_programs"] == []
     assert progress["phase"] == "analysis-fidelity"
     assert progress["analysis_fidelity"]["status"] == "pending"
@@ -56,6 +64,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     assert (root / "coverage.jsonl").is_file()
     assert (root / "runtime.jsonl").is_file()
     assert (root / "resources.jsonl").is_file()
+    assert (root / "mappings.jsonl").is_file()
     task_by_id = {task["id"]: task for task in tasks["tasks"]}
     assert task_by_id["index-entry-graph"]["depends_on"] == [
         "assess-analysis-fidelity"
@@ -255,3 +264,47 @@ def test_validator_requires_program_root_for_traced_resource(tmp_path: Path) -> 
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "traced resource requires a program root" in result.stderr
+
+
+def test_validator_checks_scummvm_implementation_mapping(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation", target="scummvm")
+    project = json.loads((root / "project.json").read_text(encoding="utf-8"))
+    tasks = json.loads((root / "tasks.json").read_text(encoding="utf-8"))
+    assert project["target"]["kind"] == "scummvm"
+    assert "map-scummvm-implementation" in {task["id"] for task in tasks["tasks"]}
+
+    mapping: dict[str, Any] = {
+        "id": "mapping-main-menu",
+        "behavior_id": "behavior-main-menu",
+        "target": {
+            "kind": "scummvm",
+            "repository": "/checkout/scummvm",
+            "revision": "abc123",
+            "paths": ["engines/example/menu.cpp"],
+            "symbols": ["ExampleEngine::runMainMenu"],
+        },
+        "retail_contract": ["Menu owns input until selection"],
+        "strategy": "faithful",
+        "service_substitutions": [],
+        "retained_engine_semantics": ["Persist selection before launch"],
+        "validation": {
+            "unit_tests": ["menu transition test"],
+            "fixtures": ["menu resource"],
+            "interactive_replay": ["Select the first mission"],
+        },
+        "evidence_ids": ["ev-menu-001"],
+        "confidence": "high",
+        "status": "ready",
+        "source_task": "map-scummvm-implementation",
+        "timestamp": "2026-01-01T00:00:00Z",
+    }
+    mapping_path = root / "mappings.jsonl"
+    mapping_path.write_text(json.dumps(mapping) + "\n", encoding="utf-8")
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+    mapping["strategy"] = "copy-the-assembly"
+    mapping_path.write_text(json.dumps(mapping) + "\n", encoding="utf-8")
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "invalid mapping strategy" in result.stderr

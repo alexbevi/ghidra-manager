@@ -36,6 +36,8 @@ Prefer verified, conservative names over complete-looking speculation.
   claiming runtime-observed behavior or semantic parity.
 - Read [references/resource-entry-graphs.md](references/resource-entry-graphs.md)
   when archives, scripts, media, saves, or other game data drive behavior.
+- Read [references/scummvm-handoff.md](references/scummvm-handoff.md) when the
+  reimplementation target is a ScummVM engine.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -79,6 +81,7 @@ python3 scripts/init_project.py \
   --program <program-name> \
   --program-path <ghidra-program-path> \
   --profile <symbol-recovery-or-reimplementation> \
+  --target <generic-or-scummvm> \
   --goal "<exact goal objective>"
 ```
 
@@ -99,6 +102,11 @@ Follow `references/campaign-profiles.md` and record one profile in
 Do not turn a reimplementation campaign into an unnamed-symbol sweep. Recover
 additional symbols only when they support a reachable behavior, external
 contract, shared data model, or stated acceptance criterion.
+
+For a reimplementation campaign, record the target repository identity and
+revision before classifying implementation or parity. When the target is
+ScummVM, inspect its repository instructions, engine architecture, existing
+services, implementation, tests, and relevant history before creating mappings.
 
 ## Connect to the exact program
 
@@ -248,6 +256,12 @@ observations in `runtime.jsonl`. Preserve logs, traces, screenshots, state dumps
 or other raw captures under `traces/`. Static decompilation can establish a
 contract hypothesis; it cannot establish timing, ownership, presentation, or
 interactive parity by itself.
+
+Map implementation-ready behaviors to the target in `mappings.jsonl`. Identify
+exact target paths and symbols, whether the strategy is faithful or a portable
+equivalent, service substitutions, engine-local semantics that must remain,
+and unit/fixture/replay validation. Follow `references/scummvm-handoff.md` for
+ScummVM targets.
 
 If a structure overlaps existing stack fragments, inspect storage and remove
 only contained fragments proven to be decompiler artifacts before applying the

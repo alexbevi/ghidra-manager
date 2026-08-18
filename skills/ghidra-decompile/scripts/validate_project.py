@@ -55,6 +55,14 @@ RUNTIME_COMPARISON_STATUSES = {
     "inconclusive",
 }
 RESOURCE_STATUSES = {"discovered", "catalogued", "traced", "unresolved", "superseded"}
+TARGET_KINDS = {"generic", "scummvm"}
+MAPPING_STRATEGIES = {
+    "faithful",
+    "portable-equivalent",
+    "intentional-deviation",
+    "unimplemented",
+}
+MAPPING_STATUSES = {"draft", "ready", "implemented", "verified", "superseded"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -336,6 +344,52 @@ def validate_resources(path: Path) -> list[str]:
     return errors
 
 
+def validate_mappings(path: Path) -> list[str]:
+    required = {
+        "id",
+        "behavior_id",
+        "target",
+        "retail_contract",
+        "strategy",
+        "service_substitutions",
+        "retained_engine_semantics",
+        "validation",
+        "evidence_ids",
+        "confidence",
+        "status",
+        "source_task",
+        "timestamp",
+    }
+    errors = validate_jsonl(path, required)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        prefix = f"{path.name}:{line_number}"
+        target = record.get("target")
+        if not isinstance(target, dict) or target.get("kind") not in TARGET_KINDS:
+            errors.append(f"{prefix}: invalid mapping target")
+        elif not isinstance(target.get("paths"), list) or not isinstance(
+            target.get("symbols"), list
+        ):
+            errors.append(f"{prefix}: target paths and symbols must be arrays")
+        if record.get("strategy") not in MAPPING_STRATEGIES:
+            errors.append(f"{prefix}: invalid mapping strategy")
+        if record.get("status") not in MAPPING_STATUSES:
+            errors.append(f"{prefix}: invalid mapping status")
+        if record.get("confidence") not in CONFIDENCE_LEVELS:
+            errors.append(f"{prefix}: invalid confidence {record.get('confidence')!r}")
+        validation = record.get("validation")
+        if not isinstance(validation, dict):
+            errors.append(f"{prefix}: validation must be an object")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -363,6 +417,13 @@ def validate(root: Path) -> list[str]:
     if project.get("schema_version") == 2:
         if project.get("profile") not in CAMPAIGN_PROFILES:
             errors.append("project.json: invalid or missing campaign profile")
+        target = project.get("target")
+        if project.get("profile") == "symbol-recovery" and target is not None:
+            errors.append("project.json: symbol-recovery target must be null")
+        if project.get("profile") == "reimplementation" and (
+            not isinstance(target, dict) or target.get("kind") not in TARGET_KINDS
+        ):
+            errors.append("project.json: reimplementation target is required")
         errors.extend(validate_derived_programs(root, project))
         if not (root / "artifacts").is_dir():
             errors.append("missing directory: artifacts")
@@ -393,6 +454,11 @@ def validate(root: Path) -> list[str]:
             errors.append("missing file: resources.jsonl")
         else:
             errors.extend(validate_resources(resources_path))
+        mappings_path = root / "mappings.jsonl"
+        if not mappings_path.is_file():
+            errors.append("missing file: mappings.jsonl")
+        else:
+            errors.extend(validate_mappings(mappings_path))
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):
