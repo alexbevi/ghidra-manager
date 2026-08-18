@@ -50,6 +50,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     assert progress["phase"] == "analysis-fidelity"
     assert progress["analysis_fidelity"]["status"] == "pending"
     assert (root / "artifacts").is_dir()
+    assert (root / "behaviors.jsonl").is_file()
     task_by_id = {task["id"]: task for task in tasks["tasks"]}
     assert task_by_id["index-entry-graph"]["depends_on"] == [
         "assess-analysis-fidelity"
@@ -99,5 +100,46 @@ def test_initializer_records_reimplementation_profile(tmp_path: Path) -> None:
     initialize_campaign(root, profile="reimplementation")
 
     project = json.loads((root / "project.json").read_text(encoding="utf-8"))
+    tasks = json.loads((root / "tasks.json").read_text(encoding="utf-8"))
     assert project["profile"] == "reimplementation"
+    assert "model-behavior-slices" in {task["id"] for task in tasks["tasks"]}
     assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+
+def test_validator_checks_behavior_slice_contract(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+    behavior = {
+        "id": "behavior-main-menu",
+        "title": "Run the main menu",
+        "program": "/GAME.EXE",
+        "retail_roots": ["1234:0000"],
+        "trigger": {
+            "route": "Startup after initialization",
+            "inputs": [],
+            "preconditions": ["Resources loaded"],
+        },
+        "state_reads": ["menu state"],
+        "state_writes": ["selected action"],
+        "control_flow": ["Dispatch until exit"],
+        "resources": ["MENU.DAT"],
+        "timing_and_ownership": ["Menu owns input"],
+        "side_effects": ["Persist selection"],
+        "error_and_fallback_paths": ["Return failure on missing data"],
+        "evidence_ids": ["ev-menu-001"],
+        "confidence": "high",
+        "verification": "static",
+        "status": "evidenced",
+        "unresolved": [],
+        "source_task": "model-behavior-slices",
+        "timestamp": "2026-01-01T00:00:00Z",
+    }
+    behavior_path = root / "behaviors.jsonl"
+    behavior_path.write_text(json.dumps(behavior) + "\n", encoding="utf-8")
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+    behavior["status"] = "complete-looking"
+    behavior_path.write_text(json.dumps(behavior) + "\n", encoding="utf-8")
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "invalid behavior status" in result.stderr

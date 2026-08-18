@@ -29,6 +29,15 @@ AUTHORITIES = {"read-only", "propose-only", "exclusive bounded mutation"}
 SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 FIDELITY_STATUSES = {"pending", "ready", "blocked"}
 CAMPAIGN_PROFILES = {"symbol-recovery", "reimplementation"}
+BEHAVIOR_STATUSES = {
+    "draft",
+    "evidenced",
+    "ready-for-implementation",
+    "implemented",
+    "verified",
+}
+BEHAVIOR_VERIFICATION = {"unverified", "static", "runtime-observed", "replay-matched"}
+CONFIDENCE_LEVELS = {"low", "medium", "high"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -118,6 +127,56 @@ def validate_derived_programs(root: Path, project: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_behaviors(path: Path) -> list[str]:
+    required = {
+        "id",
+        "title",
+        "program",
+        "retail_roots",
+        "trigger",
+        "state_reads",
+        "state_writes",
+        "control_flow",
+        "resources",
+        "timing_and_ownership",
+        "side_effects",
+        "error_and_fallback_paths",
+        "evidence_ids",
+        "confidence",
+        "verification",
+        "status",
+        "unresolved",
+        "source_task",
+        "timestamp",
+    }
+    errors = validate_jsonl(path, required)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        prefix = f"{path.name}:{line_number}"
+        if record.get("status") not in BEHAVIOR_STATUSES:
+            errors.append(f"{prefix}: invalid behavior status {record.get('status')!r}")
+        if record.get("verification") not in BEHAVIOR_VERIFICATION:
+            errors.append(
+                f"{prefix}: invalid behavior verification {record.get('verification')!r}"
+            )
+        if record.get("confidence") not in CONFIDENCE_LEVELS:
+            errors.append(f"{prefix}: invalid confidence {record.get('confidence')!r}")
+        roots = record.get("retail_roots")
+        if not isinstance(roots, list) or not roots:
+            errors.append(f"{prefix}: retail_roots must be a non-empty array")
+        trigger = record.get("trigger")
+        if not isinstance(trigger, dict) or not trigger.get("route"):
+            errors.append(f"{prefix}: trigger.route is required")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -153,6 +212,11 @@ def validate(root: Path) -> list[str]:
             errors.append("progress.json: analysis_fidelity must be an object")
         elif fidelity.get("status") not in FIDELITY_STATUSES:
             errors.append("progress.json: invalid analysis_fidelity status")
+        behaviors_path = root / "behaviors.jsonl"
+        if not behaviors_path.is_file():
+            errors.append("missing file: behaviors.jsonl")
+        else:
+            errors.extend(validate_behaviors(behaviors_path))
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):

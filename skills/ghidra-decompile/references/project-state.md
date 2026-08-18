@@ -12,6 +12,7 @@ Keep the state directory small and machine-readable:
 ├── tasks.json
 ├── evidence.jsonl
 ├── renames.jsonl
+├── behaviors.jsonl
 └── ARCHITECTURE.md
 ```
 
@@ -49,6 +50,10 @@ ID, category, addresses, claim, source task, and timestamp.
 }
 ```
 
+`behaviors.jsonl` is append-only. Store one bounded retail behavior contract per
+line using `references/behavior-slices.md`. Symbol-recovery campaigns may leave
+it empty; reimplementation campaigns use it as the primary semantic ledger.
+
 `ARCHITECTURE.md` is the human-readable confirmed model. Keep program identity,
 entry path, subsystem boundaries, dispatch tables, data model, cross-version
 matches, open questions, and verification summary. Label provisional claims.
@@ -59,6 +64,8 @@ matches, open questions, and verification summary. Label provisional claims.
 - Let the coordinator own JSON state writes.
 - Append evidence and rename records; do not rewrite history to hide failed
   hypotheses.
+- Append behavior revisions with new stable IDs or explicit supersession links;
+  do not rewrite verified contracts silently.
 - Update JSON files through staged temporary files and atomic replacement.
 - Use stable IDs in handoffs and cross-links.
 - Keep addresses qualified with address spaces when the program has more than

@@ -28,6 +28,8 @@ Prefer verified, conservative names over complete-looking speculation.
   before accepting an imported program as the semantic analysis target.
 - Read [references/campaign-profiles.md](references/campaign-profiles.md) before
   choosing symbol cleanup or behavior recovery as the campaign denominator.
+- Read [references/behavior-slices.md](references/behavior-slices.md) before
+  creating or verifying reimplementation behavior records.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -204,7 +206,8 @@ For each cluster:
 1. Inspect decompilation, disassembly, variables, callers, callees, xrefs,
    strings, globals, and data layout.
 2. Produce the profile-specific deliverable: a rename/type plan for
-   `symbol-recovery`, or a bounded behavior contract for `reimplementation`.
+   `symbol-recovery`, or a bounded behavior contract in `behaviors.jsonl` for
+   `reimplementation`.
 3. Resolve conflicts and choose conservative names.
 4. Grant one agent an exclusive mutation lease for the bounded batch.
 5. Apply types before dependent variable names when type information makes the
@@ -215,6 +218,12 @@ For each cluster:
 9. Save the Ghidra program only after verification.
 10. Rerun structural and meaningful-local audits, update state atomically, and
     enqueue newly exposed frontier work.
+
+For a reimplementation slice, require the exact trigger route, retail roots,
+inputs and preconditions, state reads and writes, control-flow decisions,
+resources, timing and ownership, side effects, error/fallback paths, evidence,
+and unresolved questions defined in `references/behavior-slices.md`. Do not use
+a prose summary as a substitute for the machine-readable record.
 
 If a structure overlaps existing stack fragments, inspect storage and remove
 only contained fragments proven to be decompiler artifacts before applying the

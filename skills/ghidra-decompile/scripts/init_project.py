@@ -144,6 +144,22 @@ def main() -> int:
             "depends_on": ["assess-analysis-fidelity"],
         },
     ]
+    if args.profile == "reimplementation":
+        seed_tasks.append(
+            {
+                "id": "model-behavior-slices",
+                "kind": "behavior-recovery",
+                "title": "Model bounded observable behavior contracts",
+                "scope": {"behaviors": "goal-relevant"},
+                "authority": "read-only",
+                "status": "pending",
+                "depends_on": [
+                    "index-entry-graph",
+                    "index-string-xrefs",
+                    "index-indirect-targets",
+                ],
+            }
+        )
     tasks = {
         "schema_version": 2,
         "queue_target": 6,
@@ -158,6 +174,7 @@ def main() -> int:
     (output / "artifacts").mkdir()
     (output / "evidence.jsonl").touch()
     (output / "renames.jsonl").touch()
+    (output / "behaviors.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
         f"""# {args.program} Architecture
 
@@ -187,6 +204,10 @@ Pending evidence.
 ## Data model
 
 Pending evidence.
+
+## Behavior inventory
+
+No behavior slices recorded.
 
 ## Cross-version references
 
