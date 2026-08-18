@@ -160,6 +160,17 @@ def main() -> int:
                 ],
             }
         )
+        seed_tasks.append(
+            {
+                "id": "capture-runtime-evidence",
+                "kind": "runtime-validation",
+                "title": "Capture and compare goal-relevant runtime behavior",
+                "scope": {"behaviors": "goal-relevant"},
+                "authority": "read-only",
+                "status": "pending",
+                "depends_on": ["model-behavior-slices"],
+            }
+        )
     tasks = {
         "schema_version": 2,
         "queue_target": 6,
@@ -172,10 +183,12 @@ def main() -> int:
     write_json(output / "progress.json", progress)
     write_json(output / "tasks.json", tasks)
     (output / "artifacts").mkdir()
+    (output / "traces").mkdir()
     (output / "evidence.jsonl").touch()
     (output / "renames.jsonl").touch()
     (output / "behaviors.jsonl").touch()
     (output / "coverage.jsonl").touch()
+    (output / "runtime.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
         f"""# {args.program} Architecture
 
@@ -213,6 +226,10 @@ No behavior slices recorded.
 ## Coverage and parity
 
 No reviewed coverage records.
+
+## Runtime validation
+
+No runtime observations recorded.
 
 ## Cross-version references
 

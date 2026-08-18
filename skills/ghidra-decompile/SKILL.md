@@ -32,6 +32,8 @@ Prefer verified, conservative names over complete-looking speculation.
   creating or verifying reimplementation behavior records.
 - Read [references/reachability-and-parity.md](references/reachability-and-parity.md)
   before classifying implementation coverage or reporting progress.
+- Read [references/runtime-validation.md](references/runtime-validation.md) before
+  claiming runtime-observed behavior or semantic parity.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -232,6 +234,12 @@ dimensions to `coverage.jsonl`. Keep shipped-data reachability, reusable
 interpreter completeness, implementation status, and semantic parity separate.
 Never turn raw function, address, symbol, or commit counts into percent
 reimplemented.
+
+For runtime claims, record the reproducible route and paired retail/target
+observations in `runtime.jsonl`. Preserve logs, traces, screenshots, state dumps,
+or other raw captures under `traces/`. Static decompilation can establish a
+contract hypothesis; it cannot establish timing, ownership, presentation, or
+interactive parity by itself.
 
 If a structure overlaps existing stack fragments, inspect storage and remove
 only contained fragments proven to be decompiler artifacts before applying the

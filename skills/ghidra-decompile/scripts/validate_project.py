@@ -48,6 +48,12 @@ COVERAGE_STATUSES = {
 }
 REACHABILITY_STATUSES = {"reachable", "not_reachable", "unknown"}
 REVIEW_STATES = {"proposed", "reviewed", "superseded"}
+RUNTIME_COMPARISON_STATUSES = {
+    "retail-observed",
+    "matched",
+    "mismatched",
+    "inconclusive",
+}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -229,6 +235,51 @@ def validate_coverage(path: Path) -> list[str]:
     return errors
 
 
+def validate_runtime(path: Path) -> list[str]:
+    required = {
+        "id",
+        "behavior_id",
+        "route",
+        "retail",
+        "target",
+        "comparison",
+        "evidence_ids",
+        "review_state",
+        "timestamp",
+    }
+    errors = validate_jsonl(path, required)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        prefix = f"{path.name}:{line_number}"
+        route = record.get("route")
+        if not isinstance(route, dict) or not isinstance(route.get("steps"), list):
+            errors.append(f"{prefix}: route.steps must be an array")
+        elif not route["steps"]:
+            errors.append(f"{prefix}: route.steps must not be empty")
+        retail = record.get("retail")
+        if not isinstance(retail, dict) or not isinstance(retail.get("observations"), list):
+            errors.append(f"{prefix}: retail.observations must be an array")
+        comparison = record.get("comparison")
+        if not isinstance(comparison, dict):
+            errors.append(f"{prefix}: comparison must be an object")
+            continue
+        status = comparison.get("status")
+        if status not in RUNTIME_COMPARISON_STATUSES:
+            errors.append(f"{prefix}: invalid runtime comparison status")
+        if status in {"matched", "mismatched"} and not isinstance(record.get("target"), dict):
+            errors.append(f"{prefix}: {status} comparison requires a target observation")
+        if record.get("review_state") not in REVIEW_STATES:
+            errors.append(f"{prefix}: invalid review_state")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -274,6 +325,13 @@ def validate(root: Path) -> list[str]:
             errors.append("missing file: coverage.jsonl")
         else:
             errors.extend(validate_coverage(coverage_path))
+        runtime_path = root / "runtime.jsonl"
+        if not runtime_path.is_file():
+            errors.append("missing file: runtime.jsonl")
+        else:
+            errors.extend(validate_runtime(runtime_path))
+        if not (root / "traces").is_dir():
+            errors.append("missing directory: traces")
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):

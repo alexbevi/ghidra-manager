@@ -7,6 +7,7 @@ Keep the state directory small and machine-readable:
 ```text
 <state-dir>/
 ├── artifacts/
+├── traces/
 ├── project.json
 ├── progress.json
 ├── tasks.json
@@ -14,6 +15,7 @@ Keep the state directory small and machine-readable:
 ├── renames.jsonl
 ├── behaviors.jsonl
 ├── coverage.jsonl
+├── runtime.jsonl
 └── ARCHITECTURE.md
 ```
 
@@ -58,6 +60,11 @@ it empty; reimplementation campaigns use it as the primary semantic ledger.
 `coverage.jsonl` is append-only. Keep independently reviewed shipped-data
 reachability, reusable-interpreter, implementation, and semantic-parity
 classifications using `references/reachability-and-parity.md`.
+
+`runtime.jsonl` is append-only. Store reproducible retail observations and
+paired target comparisons using `references/runtime-validation.md`. Put raw
+logs, traces, screenshots, and state captures in `traces/` and reference them
+with relative paths.
 
 `ARCHITECTURE.md` is the human-readable confirmed model. Keep program identity,
 entry path, subsystem boundaries, dispatch tables, data model, cross-version

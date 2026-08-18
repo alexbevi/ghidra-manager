@@ -51,8 +51,10 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     assert progress["phase"] == "analysis-fidelity"
     assert progress["analysis_fidelity"]["status"] == "pending"
     assert (root / "artifacts").is_dir()
+    assert (root / "traces").is_dir()
     assert (root / "behaviors.jsonl").is_file()
     assert (root / "coverage.jsonl").is_file()
+    assert (root / "runtime.jsonl").is_file()
     task_by_id = {task["id"]: task for task in tasks["tasks"]}
     assert task_by_id["index-entry-graph"]["depends_on"] == [
         "assess-analysis-fidelity"
@@ -105,6 +107,7 @@ def test_initializer_records_reimplementation_profile(tmp_path: Path) -> None:
     tasks = json.loads((root / "tasks.json").read_text(encoding="utf-8"))
     assert project["profile"] == "reimplementation"
     assert "model-behavior-slices" in {task["id"] for task in tasks["tasks"]}
+    assert "capture-runtime-evidence" in {task["id"] for task in tasks["tasks"]}
     assert run_script(VALIDATE_SCRIPT, root).returncode == 0
 
 
@@ -179,3 +182,42 @@ def test_validator_keeps_coverage_dimensions_separate(tmp_path: Path) -> None:
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "invalid semantic_parity status" in result.stderr
+
+
+def test_validator_requires_target_for_runtime_match(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+    runtime: dict[str, Any] = {
+        "id": "runtime-main-menu-001",
+        "behavior_id": "behavior-main-menu",
+        "route": {
+            "steps": ["Start the executable", "Enter the main menu"],
+            "inputs": [],
+            "preconditions": ["Retail data installed"],
+        },
+        "retail": {
+            "environment": "emulator",
+            "revision": "sha256:" + "1" * 64,
+            "observations": ["Menu owns input"],
+            "artifacts": ["traces/menu-retail.log"],
+        },
+        "target": None,
+        "comparison": {
+            "status": "retail-observed",
+            "matched": [],
+            "differences": [],
+            "not_observed": ["Target implementation"],
+        },
+        "evidence_ids": ["ev-runtime-001"],
+        "review_state": "reviewed",
+        "timestamp": "2026-01-01T00:00:00Z",
+    }
+    runtime_path = root / "runtime.jsonl"
+    runtime_path.write_text(json.dumps(runtime) + "\n", encoding="utf-8")
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+    runtime["comparison"]["status"] = "matched"
+    runtime_path.write_text(json.dumps(runtime) + "\n", encoding="utf-8")
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "matched comparison requires a target observation" in result.stderr
