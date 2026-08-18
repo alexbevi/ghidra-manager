@@ -89,6 +89,15 @@ Run `scripts/validate_project.py <state-dir>` before resuming a campaign and
 after material state edits. Never overwrite an existing campaign with the
 initializer.
 
+Render a deterministic review summary after validation:
+
+```bash
+python3 scripts/report_project.py <state-dir> \
+  --output <state-dir>/REPORT.md
+```
+
+Treat JSON and JSONL as canonical; regenerate `REPORT.md` instead of editing it.
+
 ## Choose the campaign profile
 
 Follow `references/campaign-profiles.md` and record one profile in
@@ -302,6 +311,8 @@ Treat completion as unproven until all applicable checks pass:
 - important roots, dispatchers, types, and subsystem boundaries are decorated;
 - architecture and cross-reference notes match current Ghidra state;
 - `scripts/validate_project.py <state-dir>` passes.
+- `scripts/report_project.py <state-dir>` renders from canonical state without
+  stale or dangling references.
 
 Apply symbol-count and placeholder requirements only to `symbol-recovery` or an
 explicit symbol-cleanup acceptance criterion. For `reimplementation`, audit the

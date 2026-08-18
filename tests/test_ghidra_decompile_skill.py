@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from typing import Any
 SKILL_ROOT = Path(__file__).parents[1] / "skills" / "ghidra-decompile"
 INIT_SCRIPT = SKILL_ROOT / "scripts" / "init_project.py"
 VALIDATE_SCRIPT = SKILL_ROOT / "scripts" / "validate_project.py"
+REPORT_SCRIPT = SKILL_ROOT / "scripts" / "report_project.py"
 
 
 def run_script(script: Path, *args: object) -> subprocess.CompletedProcess[str]:
@@ -44,6 +46,50 @@ def initialize_campaign(
     assert result.returncode == 0, result.stderr
 
 
+def append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(record) + "\n")
+
+
+def add_evidence(root: Path, evidence_id: str) -> None:
+    append_jsonl(
+        root / "evidence.jsonl",
+        {
+            "id": evidence_id,
+            "category": "control-flow",
+            "addresses": ["1234:0000"],
+            "claim": "Test evidence",
+        },
+    )
+
+
+def add_behavior(root: Path, behavior_id: str = "behavior-main-menu") -> None:
+    append_jsonl(
+        root / "behaviors.jsonl",
+        {
+            "id": behavior_id,
+            "title": "Run the main menu",
+            "program": "/GAME.EXE",
+            "retail_roots": ["1234:0000"],
+            "trigger": {"route": "Startup", "inputs": [], "preconditions": []},
+            "state_reads": [],
+            "state_writes": [],
+            "control_flow": ["Dispatch until exit"],
+            "resources": [],
+            "timing_and_ownership": [],
+            "side_effects": [],
+            "error_and_fallback_paths": [],
+            "evidence_ids": [],
+            "confidence": "medium",
+            "verification": "static",
+            "status": "evidenced",
+            "unresolved": [],
+            "source_task": "model-behavior-slices",
+            "timestamp": "2026-01-01T00:00:00Z",
+        },
+    )
+
+
 def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root)
@@ -77,15 +123,19 @@ def test_validator_checks_derived_program_provenance(tmp_path: Path) -> None:
     initialize_campaign(root)
     project_path = root / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
+    artifact_content = b"flattened overlay image"
+    artifact_path = root / "artifacts" / "game-overlays.exe"
+    artifact_path.write_bytes(artifact_content)
+    artifact_digest = "sha256:" + hashlib.sha256(artifact_content).hexdigest()
     project["derived_programs"] = [
         {
             "id": "overlay-image-1",
             "role": "overlay-aware-analysis",
             "source_digest": "sha256:" + "1" * 64,
-            "digest": "sha256:" + "2" * 64,
+            "digest": artifact_digest,
             "path": "artifacts/game-overlays.exe",
             "ghidra_program_path": "/GAME_OVERLAYS.EXE",
-            "size": 1234,
+            "size": len(artifact_content),
             "format": "Old-style DOS Executable (MZ)",
             "language": "x86:LE:16:Real Mode",
             "image_base": "0000:0000",
@@ -125,6 +175,7 @@ def test_initializer_records_reimplementation_profile(tmp_path: Path) -> None:
 def test_validator_checks_behavior_slice_contract(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root, profile="reimplementation")
+    add_evidence(root, "ev-menu-001")
     behavior = {
         "id": "behavior-main-menu",
         "title": "Run the main menu",
@@ -164,6 +215,8 @@ def test_validator_checks_behavior_slice_contract(tmp_path: Path) -> None:
 def test_validator_keeps_coverage_dimensions_separate(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root, profile="reimplementation")
+    add_behavior(root)
+    add_evidence(root, "ev-data-001")
     coverage: dict[str, Any] = {
         "id": "coverage-main-menu",
         "behavior_id": "behavior-main-menu",
@@ -198,6 +251,9 @@ def test_validator_keeps_coverage_dimensions_separate(tmp_path: Path) -> None:
 def test_validator_requires_target_for_runtime_match(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root, profile="reimplementation")
+    add_behavior(root)
+    add_evidence(root, "ev-runtime-001")
+    (root / "traces" / "menu-retail.log").write_text("menu owns input\n", encoding="utf-8")
     runtime: dict[str, Any] = {
         "id": "runtime-main-menu-001",
         "behavior_id": "behavior-main-menu",
@@ -237,6 +293,7 @@ def test_validator_requires_target_for_runtime_match(tmp_path: Path) -> None:
 def test_validator_requires_program_root_for_traced_resource(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root, profile="reimplementation")
+    add_evidence(root, "ev-resource-001")
     resource: dict[str, Any] = {
         "id": "resource-prologue",
         "data_set": "retail-v1.0",
@@ -269,6 +326,8 @@ def test_validator_requires_program_root_for_traced_resource(tmp_path: Path) -> 
 def test_validator_checks_scummvm_implementation_mapping(tmp_path: Path) -> None:
     root = tmp_path / "campaign"
     initialize_campaign(root, profile="reimplementation", target="scummvm")
+    add_behavior(root)
+    add_evidence(root, "ev-menu-001")
     project = json.loads((root / "project.json").read_text(encoding="utf-8"))
     tasks = json.loads((root / "tasks.json").read_text(encoding="utf-8"))
     assert project["target"]["kind"] == "scummvm"
@@ -308,3 +367,34 @@ def test_validator_checks_scummvm_implementation_mapping(tmp_path: Path) -> None
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "invalid mapping strategy" in result.stderr
+
+
+def test_validator_rejects_dangling_behavior_evidence(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+    add_behavior(root)
+    behavior_path = root / "behaviors.jsonl"
+    behavior = json.loads(behavior_path.read_text(encoding="utf-8"))
+    behavior["evidence_ids"] = ["ev-missing"]
+    behavior_path.write_text(json.dumps(behavior) + "\n", encoding="utf-8")
+
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "unknown evidence id ev-missing" in result.stderr
+
+
+def test_reporter_renders_deterministic_campaign_summary(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation", target="scummvm")
+
+    first = run_script(REPORT_SCRIPT, root)
+    second = run_script(REPORT_SCRIPT, root)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == second.stdout
+    assert "# Campaign Report: GAME.EXE" in first.stdout
+    assert "## Shipped-data reachability" in first.stdout
+
+    report_path = root / "REPORT.md"
+    written = run_script(REPORT_SCRIPT, root, "--output", report_path)
+    assert written.returncode == 0, written.stderr
+    assert report_path.read_text(encoding="utf-8") == first.stdout

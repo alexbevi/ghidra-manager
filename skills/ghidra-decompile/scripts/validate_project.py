@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -100,6 +101,40 @@ def validate_jsonl(path: Path, required: set[str]) -> list[str]:
     return errors
 
 
+def read_jsonl_records(path: Path) -> list[tuple[int, dict[str, Any]]]:
+    records: list[tuple[int, dict[str, Any]]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            records.append((line_number, value))
+    return records
+
+
+def resolve_bounded_path(root: Path, value: object, directory: str) -> Path | None:
+    if not isinstance(value, str) or not value or Path(value).is_absolute():
+        return None
+    expected_root = (root / directory).resolve()
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(expected_root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return "sha256:" + digest.hexdigest()
+
+
 def validate_derived_programs(root: Path, project: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     entries = project.get("derived_programs")
@@ -149,6 +184,16 @@ def validate_derived_programs(root: Path, project: dict[str, Any]) -> list[str]:
             errors.append(f"{prefix}: transform needs immutable version or source_commit")
         if isinstance(transform, dict) and not isinstance(transform.get("arguments"), list):
             errors.append(f"{prefix}: transform.arguments must be an array")
+        artifact = resolve_bounded_path(root, entry.get("path"), "artifacts")
+        if artifact is None:
+            errors.append(f"{prefix}: path must stay under artifacts/")
+        elif not artifact.is_file():
+            errors.append(f"{prefix}: derived artifact does not exist")
+        else:
+            if entry.get("size") != artifact.stat().st_size:
+                errors.append(f"{prefix}: size does not match derived artifact")
+            if entry.get("digest") != sha256_file(artifact):
+                errors.append(f"{prefix}: digest does not match derived artifact")
     return errors
 
 
@@ -244,7 +289,7 @@ def validate_coverage(path: Path) -> list[str]:
     return errors
 
 
-def validate_runtime(path: Path) -> list[str]:
+def validate_runtime(root: Path, path: Path) -> list[str]:
     required = {
         "id",
         "behavior_id",
@@ -275,6 +320,20 @@ def validate_runtime(path: Path) -> list[str]:
         retail = record.get("retail")
         if not isinstance(retail, dict) or not isinstance(retail.get("observations"), list):
             errors.append(f"{prefix}: retail.observations must be an array")
+        observations = [retail, record.get("target")]
+        for observation in observations:
+            if not isinstance(observation, dict):
+                continue
+            artifacts = observation.get("artifacts")
+            if not isinstance(artifacts, list):
+                errors.append(f"{prefix}: observation artifacts must be an array")
+                continue
+            for artifact_path in artifacts:
+                artifact = resolve_bounded_path(root, artifact_path, "traces")
+                if artifact is None:
+                    errors.append(f"{prefix}: trace artifact must stay under traces/")
+                elif not artifact.is_file():
+                    errors.append(f"{prefix}: trace artifact does not exist: {artifact_path}")
         comparison = record.get("comparison")
         if not isinstance(comparison, dict):
             errors.append(f"{prefix}: comparison must be an object")
@@ -286,6 +345,92 @@ def validate_runtime(path: Path) -> list[str]:
             errors.append(f"{prefix}: {status} comparison requires a target observation")
         if record.get("review_state") not in REVIEW_STATES:
             errors.append(f"{prefix}: invalid review_state")
+    return errors
+
+
+def referenced_evidence(record: dict[str, Any]) -> list[str]:
+    references: list[str] = []
+    direct = record.get("evidence_ids")
+    if isinstance(direct, list):
+        references.extend(value for value in direct if isinstance(value, str))
+    for field in (
+        "shipped_data_reachability",
+        "reusable_interpreter",
+        "implementation",
+        "semantic_parity",
+    ):
+        value = record.get(field)
+        if isinstance(value, dict) and isinstance(value.get("evidence_ids"), list):
+            references.extend(
+                item for item in value["evidence_ids"] if isinstance(item, str)
+            )
+    return references
+
+
+def validate_cross_references(
+    root: Path,
+    progress: dict[str, Any],
+    tasks: list[object],
+) -> list[str]:
+    errors: list[str] = []
+    task_by_id = {
+        task["id"]: task
+        for task in tasks
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
+    evidence_ids = {
+        record["id"]
+        for _, record in read_jsonl_records(root / "evidence.jsonl")
+        if isinstance(record.get("id"), str)
+    }
+    behavior_ids = {
+        record["id"]
+        for _, record in read_jsonl_records(root / "behaviors.jsonl")
+        if isinstance(record.get("id"), str)
+    }
+
+    files = (
+        "renames.jsonl",
+        "behaviors.jsonl",
+        "coverage.jsonl",
+        "runtime.jsonl",
+        "resources.jsonl",
+        "mappings.jsonl",
+    )
+    for filename in files:
+        for line_number, record in read_jsonl_records(root / filename):
+            prefix = f"{filename}:{line_number}"
+            for evidence_id in referenced_evidence(record):
+                if evidence_id not in evidence_ids:
+                    errors.append(f"{prefix}: unknown evidence id {evidence_id}")
+            source_task = record.get("source_task")
+            if isinstance(source_task, str) and source_task not in task_by_id:
+                errors.append(f"{prefix}: unknown source task {source_task}")
+            behavior_id = record.get("behavior_id")
+            if isinstance(behavior_id, str) and behavior_id not in behavior_ids:
+                errors.append(f"{prefix}: unknown behavior id {behavior_id}")
+
+    for index, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            continue
+        if task.get("authority") != "exclusive bounded mutation":
+            continue
+        verification_task = task.get("verification_task")
+        if not isinstance(verification_task, str) or verification_task not in task_by_id:
+            errors.append(
+                f"tasks.json:tasks[{index}]: mutation task needs a known verification_task"
+            )
+
+    lease = progress.get("active_mutation_lease")
+    if isinstance(lease, dict):
+        task_id = lease.get("task_id")
+        if not isinstance(task_id, str) or task_id not in task_by_id:
+            errors.append("progress.json: mutation lease references an unknown task")
+        elif task_by_id[task_id].get("status") != "leased":
+            errors.append("progress.json: mutation lease task must have leased status")
+        verification_task = lease.get("verification_task_id")
+        if not isinstance(verification_task, str) or verification_task not in task_by_id:
+            errors.append("progress.json: mutation lease needs a known verification task")
     return errors
 
 
@@ -407,6 +552,13 @@ def validate(root: Path) -> list[str]:
     ):
         if document.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
             errors.append(f"{name}: unsupported schema_version")
+    schema_versions = {
+        project.get("schema_version"),
+        progress.get("schema_version"),
+        tasks_doc.get("schema_version"),
+    }
+    if len(schema_versions) != 1:
+        errors.append("campaign documents must use the same schema_version")
 
     ghidra = project.get("ghidra")
     if not isinstance(ghidra, dict) or not ghidra.get("project") or not ghidra.get(
@@ -432,6 +584,12 @@ def validate(root: Path) -> list[str]:
             errors.append("progress.json: analysis_fidelity must be an object")
         elif fidelity.get("status") not in FIDELITY_STATUSES:
             errors.append("progress.json: invalid analysis_fidelity status")
+        elif fidelity.get("status") == "ready" and (
+            not fidelity.get("semantic_program") or not fidelity.get("verified_at")
+        ):
+            errors.append(
+                "progress.json: ready analysis_fidelity needs semantic_program and verified_at"
+            )
         behaviors_path = root / "behaviors.jsonl"
         if not behaviors_path.is_file():
             errors.append("missing file: behaviors.jsonl")
@@ -446,7 +604,7 @@ def validate(root: Path) -> list[str]:
         if not runtime_path.is_file():
             errors.append("missing file: runtime.jsonl")
         else:
-            errors.extend(validate_runtime(runtime_path))
+            errors.extend(validate_runtime(root, runtime_path))
         if not (root / "traces").is_dir():
             errors.append("missing directory: traces")
         resources_path = root / "resources.jsonl"
@@ -496,6 +654,9 @@ def validate(root: Path) -> list[str]:
         not isinstance(lease, dict) or not lease.get("lease_owner")
     ):
         errors.append("progress.json: active mutation lease needs lease_owner")
+
+    if project.get("schema_version") == 2:
+        errors.extend(validate_cross_references(root, progress, tasks))
 
     errors.extend(
         validate_jsonl(

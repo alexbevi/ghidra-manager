@@ -80,6 +80,10 @@ and validation routes. Use `references/scummvm-handoff.md` for ScummVM targets.
 entry path, subsystem boundaries, dispatch tables, data model, cross-version
 matches, open questions, and verification summary. Label provisional claims.
 
+`REPORT.md` is optional generated output. Produce it with
+`scripts/report_project.py`; never treat it as canonical or edit it instead of
+the JSON/JSONL records.
+
 ## State rules
 
 - Initialize once with `scripts/init_project.py`.
@@ -96,6 +100,9 @@ matches, open questions, and verification summary. Label provisional claims.
   provenance are part of campaign identity.
 - Record UTC timestamps.
 - Validate with `scripts/validate_project.py <state-dir>`.
+- Require referenced evidence, behaviors, source tasks, verification tasks, and
+  active leases to resolve before reporting.
+- Render deterministic Markdown with `scripts/report_project.py <state-dir>`.
 - Keep Ghidra as the source of truth for program semantics. State files
   coordinate and explain; they do not override readback.
 
