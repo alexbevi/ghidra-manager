@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ TASK_STATUSES = {
     "cancelled",
 }
 AUTHORITIES = {"read-only", "propose-only", "exclusive bounded mutation"}
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
+FIDELITY_STATUSES = {"pending", "ready", "blocked"}
+SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -61,6 +65,58 @@ def validate_jsonl(path: Path, required: set[str]) -> list[str]:
     return errors
 
 
+def validate_derived_programs(root: Path, project: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    entries = project.get("derived_programs")
+    if not isinstance(entries, list):
+        return ["project.json: derived_programs must be an array"]
+    if entries and not (root / "artifacts").is_dir():
+        errors.append("project.json: derived programs require an artifacts directory")
+
+    seen: set[str] = set()
+    required = {
+        "id",
+        "role",
+        "source_digest",
+        "digest",
+        "path",
+        "ghidra_program_path",
+        "size",
+        "format",
+        "language",
+        "transform",
+        "address_mapping",
+        "validation",
+    }
+    for index, entry in enumerate(entries):
+        prefix = f"project.json:derived_programs[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{prefix}: expected object")
+            continue
+        missing = required - entry.keys()
+        if missing:
+            errors.append(f"{prefix}: missing {', '.join(sorted(missing))}")
+        entry_id = entry.get("id")
+        if not isinstance(entry_id, str) or not entry_id:
+            errors.append(f"{prefix}: id is required")
+        elif entry_id in seen:
+            errors.append(f"{prefix}: duplicate id {entry_id}")
+        else:
+            seen.add(entry_id)
+        for field in ("source_digest", "digest"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
+                errors.append(f"{prefix}: {field} must be sha256:<64 lowercase hex>")
+        transform = entry.get("transform")
+        if not isinstance(transform, dict) or not transform.get("tool"):
+            errors.append(f"{prefix}: transform.tool is required")
+        elif not transform.get("version") and not transform.get("source_commit"):
+            errors.append(f"{prefix}: transform needs immutable version or source_commit")
+        if isinstance(transform, dict) and not isinstance(transform.get("arguments"), list):
+            errors.append(f"{prefix}: transform.arguments must be an array")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -76,7 +132,7 @@ def validate(root: Path) -> list[str]:
         ("progress.json", progress),
         ("tasks.json", tasks_doc),
     ):
-        if document.get("schema_version") != 1:
+        if document.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
             errors.append(f"{name}: unsupported schema_version")
 
     ghidra = project.get("ghidra")
@@ -84,6 +140,16 @@ def validate(root: Path) -> list[str]:
         "program"
     ):
         errors.append("project.json: ghidra.project and ghidra.program are required")
+
+    if project.get("schema_version") == 2:
+        errors.extend(validate_derived_programs(root, project))
+        if not (root / "artifacts").is_dir():
+            errors.append("missing directory: artifacts")
+        fidelity = progress.get("analysis_fidelity")
+        if not isinstance(fidelity, dict):
+            errors.append("progress.json: analysis_fidelity must be an object")
+        elif fidelity.get("status") not in FIDELITY_STATUSES:
+            errors.append("progress.json: invalid analysis_fidelity status")
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):

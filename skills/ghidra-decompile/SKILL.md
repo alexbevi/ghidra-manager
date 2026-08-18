@@ -24,6 +24,8 @@ Prefer verified, conservative names over complete-looking speculation.
   before proposing or applying names, types, classes, or comments.
 - Read [references/project-state.md](references/project-state.md) before
   initializing, validating, or repairing campaign state.
+- Read [references/analysis-fidelity.md](references/analysis-fidelity.md)
+  before accepting an imported program as the semantic analysis target.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -93,6 +95,26 @@ responding instance and open program.
 Do not weaken bridge policy merely to enable inline scripts. When script
 execution is disabled, use native MCP inventory, analysis, xref, and batch
 tools; record any audit coverage that remains unavailable.
+
+## Phase 0: Prove analysis fidelity
+
+Before naming or modeling behavior, prove that Ghidra exposes the executable
+content the retail loader can reach. Follow `references/analysis-fidelity.md`.
+
+Inspect the file container, relocation model, overlays, appended payloads,
+compression, embedded executables, segment aliases, and loader-created memory
+map. Identify compiler runtime code and establish the applicable near/far,
+register-return, stack-cleanup, and hidden-parameter conventions.
+
+If the original import omits reachable code, preserve it unchanged and create a
+reproducible derived analysis image under the campaign `artifacts/` directory.
+Record source and result digests, the immutable transformation tool identity and
+arguments, the Ghidra program path, address mapping, and validation counts in
+`project.json`. Compare the original and derived imports before choosing the
+semantic source program.
+
+Do not start broad semantic recovery while fidelity is `pending` or `blocked`.
+Record limitations explicitly when a complete import is impossible.
 
 ## Phase 1: Baseline and index
 

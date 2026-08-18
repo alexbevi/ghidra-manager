@@ -52,7 +52,7 @@ def main() -> int:
     timestamp = utc_now()
     slug = args.slug or slugify(args.program)
     project = {
-        "schema_version": 1,
+        "schema_version": 2,
         "campaign_slug": slug,
         "created_at": timestamp,
         "goal_objective": args.goal,
@@ -68,11 +68,22 @@ def main() -> int:
             "digest": None,
         },
         "entry_points": [],
+        "derived_programs": [],
     }
     progress = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "active",
-        "phase": "reconnaissance",
+        "phase": "analysis-fidelity",
+        "analysis_fidelity": {
+            "status": "pending",
+            "semantic_program": None,
+            "container_coverage": None,
+            "relocations_and_overlays": None,
+            "compiler_abi": None,
+            "address_aliasing": None,
+            "limitations": [],
+            "verified_at": None,
+        },
         "baseline": {},
         "current": {},
         "active_mutation_lease": None,
@@ -91,13 +102,22 @@ def main() -> int:
             "depends_on": [],
         },
         {
+            "id": "assess-analysis-fidelity",
+            "kind": "analysis-fidelity",
+            "title": "Prove loader, container, address, and ABI fidelity",
+            "scope": {"program": args.program},
+            "authority": "read-only",
+            "status": "pending",
+            "depends_on": ["recon-identity"],
+        },
+        {
             "id": "index-entry-graph",
             "kind": "graph-index",
             "title": "Index entry points and direct call graph",
             "scope": {"roots": "entry-points"},
             "authority": "read-only",
             "status": "pending",
-            "depends_on": ["recon-identity"],
+            "depends_on": ["assess-analysis-fidelity"],
         },
         {
             "id": "index-string-xrefs",
@@ -106,7 +126,7 @@ def main() -> int:
             "scope": {"strings": "all"},
             "authority": "read-only",
             "status": "pending",
-            "depends_on": ["recon-identity"],
+            "depends_on": ["assess-analysis-fidelity"],
         },
         {
             "id": "index-indirect-targets",
@@ -115,11 +135,11 @@ def main() -> int:
             "scope": {"targets": "indirect"},
             "authority": "read-only",
             "status": "pending",
-            "depends_on": ["recon-identity"],
+            "depends_on": ["assess-analysis-fidelity"],
         },
     ]
     tasks = {
-        "schema_version": 1,
+        "schema_version": 2,
         "queue_target": 6,
         "max_workers": args.max_workers,
         "tasks": seed_tasks,
@@ -129,6 +149,7 @@ def main() -> int:
     write_json(output / "project.json", project)
     write_json(output / "progress.json", progress)
     write_json(output / "tasks.json", tasks)
+    (output / "artifacts").mkdir()
     (output / "evidence.jsonl").touch()
     (output / "renames.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
@@ -144,6 +165,10 @@ def main() -> int:
 ## Entry path
 
 Pending reconnaissance.
+
+## Analysis fidelity
+
+Pending container, loader, address, and ABI audit.
 
 ## Subsystems
 

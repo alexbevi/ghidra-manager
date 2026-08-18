@@ -6,6 +6,7 @@ Keep the state directory small and machine-readable:
 
 ```text
 <state-dir>/
+├── artifacts/
 ├── project.json
 ├── progress.json
 ├── tasks.json
@@ -15,6 +16,9 @@ Keep the state directory small and machine-readable:
 ```
 
 `project.json` contains stable campaign and binary identity.
+Keep reproducible transformed binaries and their sidecar manifests in
+`artifacts/`; describe every derivative and its provenance in
+`project.json.derived_programs`.
 
 `progress.json` contains phase, status, aggregate baseline/current counts,
 blockers, last verification, and active mutation lease. Do not store every
@@ -59,6 +63,8 @@ matches, open questions, and verification summary. Label provisional claims.
 - Use stable IDs in handoffs and cross-links.
 - Keep addresses qualified with address spaces when the program has more than
   one.
+- Never overwrite a derived program in place; its digest and transformation
+  provenance are part of campaign identity.
 - Record UTC timestamps.
 - Validate with `scripts/validate_project.py <state-dir>`.
 - Keep Ghidra as the source of truth for program semantics. State files
