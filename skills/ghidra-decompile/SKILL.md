@@ -1,6 +1,6 @@
 ---
 name: ghidra-decompile
-description: Coordinate long-running, evidence-driven reverse engineering and decompilation of binaries in Ghidra. Use when Codex needs to scan and index an active Ghidra program, locate entry points, walk direct and indirect function graphs, use strings and cross-references to recover names, classes, data structures, parameters, variables, and types, operate inside a persistent /goal, or orchestrate a coordinator and specialized subagents for exploration, renaming, consolidation, verification, cross-referencing, and comments or decoration.
+description: Coordinate long-running, evidence-driven reverse engineering and decompilation of binaries in Ghidra for either symbol recovery or software reimplementation. Use when Codex needs to scan and index an active Ghidra program, locate entry points, walk direct and indirect function graphs, recover names and types, extract behavior for a source port or game-engine reimplementation, operate inside a persistent /goal, or orchestrate bounded exploration, mutation, consolidation, verification, and documentation.
 ---
 
 <!--
@@ -26,6 +26,8 @@ Prefer verified, conservative names over complete-looking speculation.
   initializing, validating, or repairing campaign state.
 - Read [references/analysis-fidelity.md](references/analysis-fidelity.md)
   before accepting an imported program as the semantic analysis target.
+- Read [references/campaign-profiles.md](references/campaign-profiles.md) before
+  choosing symbol cleanup or behavior recovery as the campaign denominator.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -68,12 +70,27 @@ python3 scripts/init_project.py \
   --project <ghidra-project> \
   --program <program-name> \
   --program-path <ghidra-program-path> \
+  --profile <symbol-recovery-or-reimplementation> \
   --goal "<exact goal objective>"
 ```
 
 Run `scripts/validate_project.py <state-dir>` before resuming a campaign and
 after material state edits. Never overwrite an existing campaign with the
 initializer.
+
+## Choose the campaign profile
+
+Follow `references/campaign-profiles.md` and record one profile in
+`project.json`:
+
+- Use `symbol-recovery` when the objective explicitly asks for a clean,
+  documented Ghidra database or named/type-recovered symbol classes.
+- Use `reimplementation` when the objective is to understand, reproduce, port,
+  or validate program behavior in another codebase.
+
+Do not turn a reimplementation campaign into an unnamed-symbol sweep. Recover
+additional symbols only when they support a reachable behavior, external
+contract, shared data model, or stated acceptance criterion.
 
 ## Connect to the exact program
 
@@ -186,7 +203,8 @@ For each cluster:
 
 1. Inspect decompilation, disassembly, variables, callers, callees, xrefs,
    strings, globals, and data layout.
-2. Produce an evidence-backed rename/type plan.
+2. Produce the profile-specific deliverable: a rename/type plan for
+   `symbol-recovery`, or a bounded behavior contract for `reimplementation`.
 3. Resolve conflicts and choose conservative names.
 4. Grant one agent an exclusive mutation lease for the bounded batch.
 5. Apply types before dependent variable names when type information makes the
@@ -237,6 +255,11 @@ Treat completion as unproven until all applicable checks pass:
 - important roots, dispatchers, types, and subsystem boundaries are decorated;
 - architecture and cross-reference notes match current Ghidra state;
 - `scripts/validate_project.py <state-dir>` passes.
+
+Apply symbol-count and placeholder requirements only to `symbol-recovery` or an
+explicit symbol-cleanup acceptance criterion. For `reimplementation`, audit the
+requested behaviors and their evidence, dependencies, unresolved branches, and
+validation routes instead; zero default names is neither required nor implied.
 
 Report baseline-to-final counts, unresolved exceptions, saved-state status, and
 the exact evidence supporting completion. A zero `FUN_*` count alone is not a

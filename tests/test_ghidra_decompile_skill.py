@@ -19,7 +19,7 @@ def run_script(script: Path, *args: object) -> subprocess.CompletedProcess[str]:
     )
 
 
-def initialize_campaign(root: Path) -> None:
+def initialize_campaign(root: Path, *, profile: str = "symbol-recovery") -> None:
     result = run_script(
         INIT_SCRIPT,
         "--output",
@@ -30,6 +30,8 @@ def initialize_campaign(root: Path) -> None:
         "GAME.EXE",
         "--program-path",
         "/GAME.EXE",
+        "--profile",
+        profile,
     )
     assert result.returncode == 0, result.stderr
 
@@ -43,6 +45,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     tasks = json.loads((root / "tasks.json").read_text(encoding="utf-8"))
 
     assert project["schema_version"] == 2
+    assert project["profile"] == "symbol-recovery"
     assert project["derived_programs"] == []
     assert progress["phase"] == "analysis-fidelity"
     assert progress["analysis_fidelity"]["status"] == "pending"
@@ -89,3 +92,12 @@ def test_validator_checks_derived_program_provenance(tmp_path: Path) -> None:
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "digest must be sha256:<64 lowercase hex>" in result.stderr
+
+
+def test_initializer_records_reimplementation_profile(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+
+    project = json.loads((root / "project.json").read_text(encoding="utf-8"))
+    assert project["profile"] == "reimplementation"
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0

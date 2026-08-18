@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", required=True)
     parser.add_argument("--program", required=True)
     parser.add_argument("--program-path", default="")
+    parser.add_argument(
+        "--profile",
+        choices=("symbol-recovery", "reimplementation"),
+        default="symbol-recovery",
+    )
     parser.add_argument("--goal", default="")
     parser.add_argument("--slug")
     parser.add_argument("--max-workers", type=int, default=3)
@@ -56,6 +61,7 @@ def main() -> int:
         "campaign_slug": slug,
         "created_at": timestamp,
         "goal_objective": args.goal,
+        "profile": args.profile,
         "ghidra": {
             "project": args.project,
             "program": args.program,

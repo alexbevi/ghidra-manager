@@ -28,6 +28,7 @@ TASK_STATUSES = {
 AUTHORITIES = {"read-only", "propose-only", "exclusive bounded mutation"}
 SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 FIDELITY_STATUSES = {"pending", "ready", "blocked"}
+CAMPAIGN_PROFILES = {"symbol-recovery", "reimplementation"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -142,6 +143,8 @@ def validate(root: Path) -> list[str]:
         errors.append("project.json: ghidra.project and ghidra.program are required")
 
     if project.get("schema_version") == 2:
+        if project.get("profile") not in CAMPAIGN_PROFILES:
+            errors.append("project.json: invalid or missing campaign profile")
         errors.extend(validate_derived_programs(root, project))
         if not (root / "artifacts").is_dir():
             errors.append("missing directory: artifacts")
