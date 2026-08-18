@@ -30,6 +30,8 @@ Prefer verified, conservative names over complete-looking speculation.
   choosing symbol cleanup or behavior recovery as the campaign denominator.
 - Read [references/behavior-slices.md](references/behavior-slices.md) before
   creating or verifying reimplementation behavior records.
+- Read [references/reachability-and-parity.md](references/reachability-and-parity.md)
+  before classifying implementation coverage or reporting progress.
 
 The coordinator must read the required references itself. Do not delegate
 interpretation of this skill.
@@ -225,6 +227,12 @@ resources, timing and ownership, side effects, error/fallback paths, evidence,
 and unresolved questions defined in `references/behavior-slices.md`. Do not use
 a prose summary as a substitute for the machine-readable record.
 
+After reviewing a behavior slice, append its independent reachability and parity
+dimensions to `coverage.jsonl`. Keep shipped-data reachability, reusable
+interpreter completeness, implementation status, and semantic parity separate.
+Never turn raw function, address, symbol, or commit counts into percent
+reimplemented.
+
 If a structure overlaps existing stack fragments, inspect storage and remove
 only contained fragments proven to be decompiler artifacts before applying the
 aggregate. If a saved type lookup fails, inspect its actual category/path rather
@@ -269,6 +277,8 @@ Apply symbol-count and placeholder requirements only to `symbol-recovery` or an
 explicit symbol-cleanup acceptance criterion. For `reimplementation`, audit the
 requested behaviors and their evidence, dependencies, unresolved branches, and
 validation routes instead; zero default names is neither required nor implied.
+Report each coverage denominator from `coverage.jsonl` and list reachable or
+important gaps. Do not collapse the dimensions into one completion percentage.
 
 Report baseline-to-final counts, unresolved exceptions, saved-state status, and
 the exact evidence supporting completion. A zero `FUN_*` count alone is not a

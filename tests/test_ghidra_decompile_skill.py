@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 SKILL_ROOT = Path(__file__).parents[1] / "skills" / "ghidra-decompile"
 INIT_SCRIPT = SKILL_ROOT / "scripts" / "init_project.py"
@@ -51,6 +52,7 @@ def test_initializer_seeds_analysis_fidelity_gate(tmp_path: Path) -> None:
     assert progress["analysis_fidelity"]["status"] == "pending"
     assert (root / "artifacts").is_dir()
     assert (root / "behaviors.jsonl").is_file()
+    assert (root / "coverage.jsonl").is_file()
     task_by_id = {task["id"]: task for task in tasks["tasks"]}
     assert task_by_id["index-entry-graph"]["depends_on"] == [
         "assess-analysis-fidelity"
@@ -143,3 +145,37 @@ def test_validator_checks_behavior_slice_contract(tmp_path: Path) -> None:
     result = run_script(VALIDATE_SCRIPT, root)
     assert result.returncode == 1
     assert "invalid behavior status" in result.stderr
+
+
+def test_validator_keeps_coverage_dimensions_separate(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    initialize_campaign(root, profile="reimplementation")
+    coverage: dict[str, Any] = {
+        "id": "coverage-main-menu",
+        "behavior_id": "behavior-main-menu",
+        "scope": {
+            "retail_data": "retail-v1.0",
+            "binary_digest": "sha256:" + "1" * 64,
+            "target_revision": "abc123",
+        },
+        "shipped_data_reachability": {
+            "status": "reachable",
+            "evidence_ids": ["ev-data-001"],
+        },
+        "reusable_interpreter": {"status": "not_applicable", "evidence_ids": []},
+        "implementation": {"status": "missing", "evidence_ids": []},
+        "semantic_parity": {"status": "unknown", "evidence_ids": []},
+        "review_state": "reviewed",
+        "confidence": "high",
+        "reviewed_by": "coordinator",
+        "timestamp": "2026-01-01T00:00:00Z",
+    }
+    coverage_path = root / "coverage.jsonl"
+    coverage_path.write_text(json.dumps(coverage) + "\n", encoding="utf-8")
+    assert run_script(VALIDATE_SCRIPT, root).returncode == 0
+
+    coverage["semantic_parity"]["status"] = "looks-good"
+    coverage_path.write_text(json.dumps(coverage) + "\n", encoding="utf-8")
+    result = run_script(VALIDATE_SCRIPT, root)
+    assert result.returncode == 1
+    assert "invalid semantic_parity status" in result.stderr

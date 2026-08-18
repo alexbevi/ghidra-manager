@@ -175,6 +175,7 @@ def main() -> int:
     (output / "evidence.jsonl").touch()
     (output / "renames.jsonl").touch()
     (output / "behaviors.jsonl").touch()
+    (output / "coverage.jsonl").touch()
     (output / "ARCHITECTURE.md").write_text(
         f"""# {args.program} Architecture
 
@@ -208,6 +209,10 @@ Pending evidence.
 ## Behavior inventory
 
 No behavior slices recorded.
+
+## Coverage and parity
+
+No reviewed coverage records.
 
 ## Cross-version references
 

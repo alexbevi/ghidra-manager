@@ -13,6 +13,7 @@ Keep the state directory small and machine-readable:
 ├── evidence.jsonl
 ├── renames.jsonl
 ├── behaviors.jsonl
+├── coverage.jsonl
 └── ARCHITECTURE.md
 ```
 
@@ -53,6 +54,10 @@ ID, category, addresses, claim, source task, and timestamp.
 `behaviors.jsonl` is append-only. Store one bounded retail behavior contract per
 line using `references/behavior-slices.md`. Symbol-recovery campaigns may leave
 it empty; reimplementation campaigns use it as the primary semantic ledger.
+
+`coverage.jsonl` is append-only. Keep independently reviewed shipped-data
+reachability, reusable-interpreter, implementation, and semantic-parity
+classifications using `references/reachability-and-parity.md`.
 
 `ARCHITECTURE.md` is the human-readable confirmed model. Keep program identity,
 entry path, subsystem boundaries, dispatch tables, data model, cross-version

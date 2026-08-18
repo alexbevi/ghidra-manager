@@ -38,6 +38,16 @@ BEHAVIOR_STATUSES = {
 }
 BEHAVIOR_VERIFICATION = {"unverified", "static", "runtime-observed", "replay-matched"}
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
+COVERAGE_STATUSES = {
+    "complete",
+    "partial",
+    "equivalent",
+    "missing",
+    "not_applicable",
+    "unknown",
+}
+REACHABILITY_STATUSES = {"reachable", "not_reachable", "unknown"}
+REVIEW_STATES = {"proposed", "reviewed", "superseded"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -177,6 +187,48 @@ def validate_behaviors(path: Path) -> list[str]:
     return errors
 
 
+def validate_coverage(path: Path) -> list[str]:
+    dimensions = ("reusable_interpreter", "implementation", "semantic_parity")
+    required = {
+        "id",
+        "behavior_id",
+        "scope",
+        "shipped_data_reachability",
+        *dimensions,
+        "review_state",
+        "confidence",
+        "reviewed_by",
+        "timestamp",
+    }
+    errors = validate_jsonl(path, required)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        prefix = f"{path.name}:{line_number}"
+        reachability = record.get("shipped_data_reachability")
+        if not isinstance(reachability, dict) or reachability.get(
+            "status"
+        ) not in REACHABILITY_STATUSES:
+            errors.append(f"{prefix}: invalid shipped-data reachability")
+        for dimension in dimensions:
+            value = record.get(dimension)
+            if not isinstance(value, dict) or value.get("status") not in COVERAGE_STATUSES:
+                errors.append(f"{prefix}: invalid {dimension} status")
+        if record.get("review_state") not in REVIEW_STATES:
+            errors.append(f"{prefix}: invalid review_state")
+        if record.get("confidence") not in CONFIDENCE_LEVELS:
+            errors.append(f"{prefix}: invalid confidence {record.get('confidence')!r}")
+        if not isinstance(record.get("scope"), dict):
+            errors.append(f"{prefix}: scope must be an object")
+    return errors
+
+
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
     missing = REQUIRED_FILES - {path.name for path in root.iterdir()}
@@ -217,6 +269,11 @@ def validate(root: Path) -> list[str]:
             errors.append("missing file: behaviors.jsonl")
         else:
             errors.extend(validate_behaviors(behaviors_path))
+        coverage_path = root / "coverage.jsonl"
+        if not coverage_path.is_file():
+            errors.append("missing file: coverage.jsonl")
+        else:
+            errors.extend(validate_coverage(coverage_path))
 
     tasks = tasks_doc.get("tasks")
     if not isinstance(tasks, list):
