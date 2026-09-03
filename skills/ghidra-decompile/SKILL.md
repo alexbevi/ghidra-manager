@@ -26,6 +26,8 @@ Prefer verified, conservative names over complete-looking speculation.
   initializing, validating, or repairing campaign state.
 - Read [references/analysis-fidelity.md](references/analysis-fidelity.md)
   before accepting an imported program as the semantic analysis target.
+- Read [references/function-identification.md](references/function-identification.md)
+  before manually naming statically linked compiler or library code.
 - Read [references/campaign-profiles.md](references/campaign-profiles.md) before
   choosing symbol cleanup or behavior recovery as the campaign denominator.
 - Read [references/behavior-slices.md](references/behavior-slices.md) before
@@ -147,6 +149,11 @@ Inspect the file container, relocation model, overlays, appended payloads,
 compression, embedded executables, segment aliases, and loader-created memory
 map. Identify compiler runtime code and establish the applicable near/far,
 register-return, stack-cleanup, and hidden-parameter conventions.
+
+Before broad manual runtime naming, inventory compatible Function ID databases,
+signature sets, debug symbols, map files, source archives, and matching reference
+binaries. Follow `references/function-identification.md`; record why each source
+was selected or rejected, and do not treat a third-party match as self-proving.
 
 If the original import omits reachable code, preserve it unchanged and create a
 reproducible derived analysis image under the campaign `artifacts/` directory.

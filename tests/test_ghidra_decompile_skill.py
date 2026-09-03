@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,14 @@ SKILL_ROOT = Path(__file__).parents[1] / "skills" / "ghidra-decompile"
 INIT_SCRIPT = SKILL_ROOT / "scripts" / "init_project.py"
 VALIDATE_SCRIPT = SKILL_ROOT / "scripts" / "validate_project.py"
 REPORT_SCRIPT = SKILL_ROOT / "scripts" / "report_project.py"
+
+
+def test_skill_local_reference_links_resolve() -> None:
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    local_links = re.findall(r"\]\((references/[^)#]+\.md)\)", skill)
+
+    assert local_links
+    assert all((SKILL_ROOT / link).is_file() for link in local_links)
 
 
 def run_script(script: Path, *args: object) -> subprocess.CompletedProcess[str]:
