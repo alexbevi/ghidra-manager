@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ghidra_manager.campaign import init_project, report_project, validate_project
+from ghidra_manager.campaign import budget, init_project, report_project, validate_project
 from ghidra_manager.errors import ManagerError
 
 
@@ -21,36 +21,74 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--program", required=True)
     init.add_argument("--program-path", required=True)
     init.add_argument("--goal", default="")
-    init.add_argument("--profile", choices=["symbol-recovery", "reimplementation"],
-                      default="symbol-recovery")
+    init.add_argument(
+        "--profile", choices=["symbol-recovery", "reimplementation"], default="symbol-recovery"
+    )
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report"]:
         actions.add_parser(name)
+
+    for group, verbs in [
+        ("budget", ["show", "set"]),
+        ("session", ["start", "finish"]),
+        ("usage", ["record"]),
+    ]:
+        command = actions.add_parser(group)
+        children = command.add_subparsers(dest="budget_action", required=True)
+        for verb in verbs:
+            child = children.add_parser(verb)
+            if verb in ("set", "start"):
+                child.add_argument("--tokens", type=int, required=verb == "set")
+            if verb == "record":
+                for field in ("source", "stream", "measurement"):
+                    child.add_argument("--" + field, required=True)
+                child.add_argument("--counter", required=True, type=int)
+                child.add_argument("--scope", action="append", required=True)
 
 
 def run(args: argparse.Namespace) -> int:
     root = args.state.expanduser().resolve()
     try:
         if args.campaign_command == "init":
-            values = ["--output", str(root), "--project", args.project,
-                      "--program", args.program, "--program-path", args.program_path,
-                      "--goal", args.goal, "--profile", args.profile]
+            values = [
+                "--output",
+                str(root),
+                "--project",
+                args.project,
+                "--program",
+                args.program,
+                "--program-path",
+                args.program_path,
+                "--goal",
+                args.goal,
+                "--profile",
+                args.profile,
+            ]
             if args.target:
                 values += ["--target", args.target]
             return init_project.main(values)
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command in ("budget", "session", "usage"):
+            result = budget.operate(root, args.budget_action, **vars(args))
+            print(json.dumps(result, sort_keys=True))
+            return 0
         project = validate_project.load_json(root / "project.json")
         progress = validate_project.load_json(root / "progress.json")
         if args.campaign_command == "report":
             report = report_project.render(root)
             print(json.dumps({"report": report}) if args.json else report, end="\n")
         else:
-            result = {"valid": True, "state": str(root), "identity": project["ghidra"],
-                      "goal": project["goal_objective"], "phase": progress.get("phase"),
-                      "current": progress.get("current", {}),
-                      "active_mutation_lease": progress.get("active_mutation_lease")}
+            result = {
+                "valid": True,
+                "state": str(root),
+                "identity": project["ghidra"],
+                "goal": project["goal_objective"],
+                "phase": progress.get("phase"),
+                "current": progress.get("current", {}),
+                "active_mutation_lease": progress.get("active_mutation_lease"),
+            }
             print(json.dumps(result, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError) as exc:
