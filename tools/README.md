@@ -186,3 +186,17 @@ The headless self-test covers type creation and rollback after a code-overlap er
 
 For type/ABI reviews, include `reviewed_native_functions` with every changed
 function address from the native delta. Missing coverage prevents finalization.
+
+## Explicit ABI contracts
+
+Types-queue proposals also accept `abi` changes: `address`, `convention`, explicit
+`return`, `parameters`, `varargs`, and `noreturn`. Each value specifies `type` and
+`storage`, either `{"register":"EAX"}` or `{"stack":4}`; parameters also name the
+variable. A void return uses `/void` and null storage. Width mismatches and
+intersecting parameter storage fail the transaction.
+
+A `compiler_model` operation supplies `name` and one reviewed `<prototype>` XML
+string, with evidence IDs. It creates only a new program-local compiler extension;
+existing models are not silently replaced. XML declarations/entities are rejected.
+No installation files change. Register storage alone does not prove preservation:
+the model and affected native caller outputs require independent review.

@@ -62,6 +62,10 @@ def run(root: Path) -> dict[str, Any]:
                 "CampaignFixture.java",
                 temporary,
                 "layout-verify",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "abi",
                 "-deleteProject",
             ],
             find_java21(),
@@ -69,7 +73,7 @@ def run(root: Path) -> dict[str, Any]:
         )
     passed = code == 0 and all(
         marker in log.read_text(errors="replace")
-        for marker in ["CAMPAIGN_FIXTURE_PASS", "CAMPAIGN_LAYOUT_PASS"]
+        for marker in ["CAMPAIGN_FIXTURE_PASS", "CAMPAIGN_LAYOUT_PASS", "CAMPAIGN_ABI_PASS"]
     )
     if not passed:
         raise ManagerError(f"Campaign fixture failed; inspect {log}")

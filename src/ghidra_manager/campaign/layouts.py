@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.campaign import abi
 from ghidra_manager.campaign.budget import locked, require_admission
 from ghidra_manager.campaign.inventory import fingerprint, latest
 from ghidra_manager.errors import ManagerError
@@ -32,7 +33,9 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
             if not change.get("evidence_ids") or not set(change["evidence_ids"]) <= evidence:
                 raise ManagerError("Every type change requires existing evidence")
             kind = change.get("kind")
-            if kind == "structure":
+            if kind in {"abi", "compiler_model"}:
+                key = abi.validate(change, snapshot)
+            elif kind == "structure":
                 if set(change) != {"kind", "path", "length", "fields", "evidence_ids"}:
                     raise ManagerError("Unexpected structure fields")
                 path, length = change["path"], change["length"]
@@ -101,7 +104,9 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
                 raise ManagerError("Type change altered code or control flow")
     types = {t["path"]: t for t in after["types"]}
     for change in plan["changes"]:
-        if change["kind"] == "structure":
+        if change["kind"] in {"abi", "compiler_model"}:
+            abi.readback(change, after)
+        elif change["kind"] == "structure":
             result = types.get(change["path"], {})
             if result.get("length") != change["length"] or result.get("fields") != change["fields"]:
                 raise ManagerError("Structure readback differs from reviewed layout")

@@ -45,7 +45,9 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
         if not required <= set(review.get("evidence_ids", [])):
             raise ManagerError("Review must address every change's evidence")
         if plan["queue"] != "naming":
-            changed = {c["address"] for c in verification.get("native_delta", {}).get("changed", [])}
+            changed = {
+                c["address"] for c in verification.get("native_delta", {}).get("changed", [])
+            }
             if "native_delta" not in verification or not changed <= set(
                 review.get("reviewed_native_functions", [])
             ):
