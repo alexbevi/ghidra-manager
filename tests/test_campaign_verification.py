@@ -52,3 +52,42 @@ def test_nonpassing_review_never_saves(tmp_path, monkeypatch):
     root, _, _ = planning_fixture(tmp_path, monkeypatch)
     with pytest.raises(FileNotFoundError):
         finalize(root, Client(8089, "/fixture.exe"), {"verdict": "fail"})
+
+
+def test_save_race_does_not_publish_verified_receipt(tmp_path, monkeypatch):
+    from ghidra_manager.campaign.inventory import read
+
+    root, snapshot, proposal = planning_fixture(tmp_path, monkeypatch)
+    plan = create(root, proposal)
+
+    def script(self, name, args):
+        if name == "CampaignRename":
+            snapshot["functions"][0]["name"] = "parse_header"
+            snapshot["transactions"] = {plan["id"]: "applied"}
+            return {"committed": True, "transaction": plan["id"]}
+        if name == "CampaignSaveState":
+            return {"changed": False, "program": self.program}
+        return deepcopy(snapshot)
+
+    def save(self, endpoint):
+        assert endpoint == "/save_program"
+        snapshot["functions"][0]["name"] = "concurrent_ui_edit"
+
+    monkeypatch.setattr(Client, "script", script)
+    monkeypatch.setattr(Client, "request", save)
+    client = Client(8089, "/fixture.exe")
+    apply(root, client, Path(plan["artifact"]))
+    verified = verify(root, client)
+    review = {
+        "plan": plan["id"],
+        "after_snapshot": verified["after_snapshot"],
+        "reviewer": "reviewer",
+        "verdict": "pass",
+        "evidence_ids": ["ev-test"],
+        "notes": "Reviewed the actual function.",
+    }
+    with pytest.raises(ManagerError, match="changed during save"):
+        finalize(root, client, review)
+    assert read(root / "batch.json")["status"] == "save-uncertain"
+    assert not (root / "artifacts" / "batches" / plan["id"] / "receipt.json").exists()
+    assert (root / "renames.jsonl").read_text() == ""

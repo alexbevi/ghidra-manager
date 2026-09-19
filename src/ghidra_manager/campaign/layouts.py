@@ -98,11 +98,19 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
     new = {f["address"]: f for f in after["functions"]}
     if old.keys() != new.keys():
         raise ManagerError("Type change altered function ownership")
+    abi_targets = {c["address"] for c in plan["changes"] if c["kind"] == "abi"}
     for address in old:
-        for key in ["byte_hash", "body", "flows"]:
+        for key in ["byte_hash", "body", "flows", "name", "namespace", "comment"]:
             if old[address].get(key) != new[address].get(key):
                 raise ManagerError("Type change altered code or control flow")
+        if address not in abi_targets and (
+            old[address].get("abi") != new[address].get("abi")
+            or old[address].get("variables") != new[address].get("variables")
+        ):
+            raise ManagerError("Unplanned function ABI changed")
     types = {t["path"]: t for t in after["types"]}
+    if any(types.get(t["path"]) != t for t in before.get("types", [])):
+        raise ManagerError("An existing type changed outside the new-layout proposal")
     for change in plan["changes"]:
         if change["kind"] in {"abi", "compiler_model"}:
             abi.readback(change, after)

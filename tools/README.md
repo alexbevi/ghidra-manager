@@ -299,3 +299,10 @@ run it automatically when exhausted. A fresh session requires a new measured
 baseline, and all declared agent scopes must be disjoint. The manager makes no
 paid model calls and cannot interrupt an in-flight response. See the budget
 examples above for recording actual cumulative counters.
+
+Finalization also checks retained native evidence hashes and rereads the complete
+snapshot after saving. A concurrent edit during save leaves `save-uncertain` and
+publishes no verified receipt. Keep UI edits outside manager mutation/finalization
+windows. A save response alone cannot prove the reviewed snapshot was saved.
+New-layout plans reject changes to existing types or unrelated function ABIs;
+existing structure replacement remains outside this tool's supported operations.

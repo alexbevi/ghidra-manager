@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.campaign import native
 from ghidra_manager.campaign.budget import locked, timestamp
 from ghidra_manager.campaign.inventory import check_identity, fingerprint, read
 from ghidra_manager.campaign.mutations import normalize, readback, reconcile
@@ -45,6 +46,10 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
         if not required <= set(review.get("evidence_ids", [])):
             raise ManagerError("Review must address every change's evidence")
         if plan["queue"] != "naming":
+            if verification.get("native_delta", {}).get("artifacts_hash") != native.manifest(
+                root, plan["id"]
+            ):
+                raise ManagerError("Native evidence changed after verification")
             changed = {
                 c["address"] for c in verification.get("native_delta", {}).get("changed", [])
             }
@@ -66,6 +71,10 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
         saved = client.script("CampaignSaveState", {})
         if saved.get("changed") is not False or saved.get("program") != client.program:
             raise ManagerError("Save not confirmed; batch remains save-uncertain")
+        saved_snapshot = client.script("CampaignInventory", {})
+        normalize(saved_snapshot)
+        if fingerprint(saved_snapshot) != verification["after_snapshot"]:
+            raise ManagerError("Program changed during save; saved checkpoint remains unverified")
         batch["status"] = "saved"
         batch["saved_at"] = timestamp()
         atomic_json(root / "batch.json", batch)

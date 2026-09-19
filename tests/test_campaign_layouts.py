@@ -78,3 +78,10 @@ def test_unchanged_verification_reuses_native_audit(tmp_path, monkeypatch):
     reconcile(root, client)
     assert len(captures) == 3
     assert read(artifact)["decompilation"] == "void f() {}"
+
+
+def test_layout_rejects_unplanned_existing_type_changes():
+    before = {"functions": [], "types": [{"path": "/Existing", "length": 4}]}
+    after = {"functions": [], "types": [{"path": "/Existing", "length": 8}]}
+    with pytest.raises(ManagerError, match="existing type changed"):
+        readback(proposal(), before, after)
