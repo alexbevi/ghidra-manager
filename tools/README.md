@@ -84,3 +84,21 @@ Collectors use the bounded script endpoint and a local temporary result file.
 Only a completion marker enters Ghidra's console: printing a whole inventory can
 stall an open Ghidra log viewer. A timeout is not proof that the server stopped;
 reconcile live state before retrying any write. No automatic write retries occur.
+
+## Rename proposals
+
+Run `campaign --state DIRECTORY plan PROPOSAL.json` after `scan` and budget
+admission. Example proposal:
+
+```json
+{"author":"analyst","changes":[{"kind":"function","address":"00401000",
+"old_name":"FUN_00401000","new_name":"parse_header","evidence_ids":["ev-header"]}]}
+```
+
+Evidence IDs must already exist in the campaign evidence ledger. Global label
+renames use `kind: global` and the exact numeric `symbol_id` from the snapshot.
+Proposals require existing prior names, unique targets, and collision-free simple
+identifiers. No type or flow fields are accepted. A retained plan binds the
+snapshot, target fingerprints, and author; editing it invalidates its identifier.
+Planning does not connect to or mutate Ghidra. Semantic confidence still requires
+independent evidence review.

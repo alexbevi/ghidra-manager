@@ -11,6 +11,7 @@ from ghidra_manager.campaign import budget, init_project, report_project, valida
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.evidence import packet
 from ghidra_manager.campaign.inventory import read, scan
+from ghidra_manager.campaign.plans import create
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
 
@@ -31,6 +32,8 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report"]:
         actions.add_parser(name)
+    plan_parser = actions.add_parser("plan", help="Validate and retain a rename proposal")
+    plan_parser.add_argument("proposal", type=Path)
     diff_parser = actions.add_parser("diff", help="Classify retained snapshot changes")
     diff_parser.add_argument("before", type=Path)
     diff_parser.add_argument("after", type=Path)
@@ -87,6 +90,9 @@ def run(args: argparse.Namespace) -> int:
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command == "plan":
+            print(json.dumps(create(root, read(args.proposal))))
+            return 0
         if args.campaign_command == "diff":
             print(json.dumps(compare(read(args.before), read(args.after)), sort_keys=True))
             return 0
