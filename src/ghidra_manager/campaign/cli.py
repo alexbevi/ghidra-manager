@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ghidra_manager.campaign import budget, init_project, report_project, validate_project
+from ghidra_manager.campaign.evidence import packet
 from ghidra_manager.campaign.inventory import scan
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
@@ -29,6 +30,10 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report"]:
         actions.add_parser(name)
+    packet_parser = actions.add_parser("packet", help="Capture cached, bounded function evidence")
+    packet_parser.add_argument("addresses", nargs="+")
+    packet_parser.add_argument("--port", type=int, default=8089)
+    packet_parser.add_argument("--max-bytes", type=int, default=32768)
     scan_parser = actions.add_parser("scan", help="Capture complete live inventory")
     scan_parser.add_argument("--port", type=int, default=8089)
     admit = actions.add_parser("admit", help="Check budget before starting a batch")
@@ -87,6 +92,18 @@ def run(args: argparse.Namespace) -> int:
             print(json.dumps(result, sort_keys=True))
             return 0
         project = validate_project.load_json(root / "project.json")
+        if args.campaign_command == "packet":
+            print(
+                json.dumps(
+                    packet(
+                        root,
+                        Client(args.port, project["ghidra"]["program_path"]),
+                        args.addresses,
+                        args.max_bytes,
+                    )
+                )
+            )
+            return 0
         if args.campaign_command == "scan":
             print(json.dumps(scan(root, Client(args.port, project["ghidra"]["program_path"]))))
             return 0

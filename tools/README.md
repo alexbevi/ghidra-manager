@@ -58,3 +58,15 @@ artifact path, not the inventory itself. It refuses busy analysis, script errors
 partial results, and identity drift. Identical captures reuse the existing file.
 Scripts must already be enabled by your GhidraMCP policy; the manager does not
 enable them. Scanning never edits program semantics or saves Ghidra.
+
+## Evidence packets
+
+`ghidra-manager campaign --state ./campaign packet 00401000 --port 8089`
+refreshes inventory, checks admission, and captures only uncached functions.
+Cache keys include exact function metadata, callers/callees, referenced symbols,
+all type definitions, program options, identity and collector version. Type and
+option changes conservatively invalidate packets. A second capture detects edits
+during collection. Raw evidence stays in the cache; the default packet is at most
+32 KiB. Use `--max-bytes` to adjust it. Oversized functions are explicitly omitted
+and `complete` is false: narrow the request or deliberately increase the limit.
+Do not treat an incomplete packet as sufficient evidence for a mutation.
