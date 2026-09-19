@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from ghidra_manager.campaign import budget, init_project, queue, report_project, validate_project
+from ghidra_manager.campaign import (
+    benchmark,
+    budget,
+    init_project,
+    metrics,
+    queue,
+    report_project,
+    validate_project,
+)
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.evidence import packet
 from ghidra_manager.campaign.inventory import fingerprint, latest, read, scan
@@ -35,7 +45,7 @@ def add_parser(commands: Any) -> None:
         "--profile", choices=["symbol-recovery", "reimplementation"], default="symbol-recovery"
     )
     init.add_argument("--target", choices=["generic", "scummvm"])
-    for name in ["status", "validate", "report", "self-test"]:
+    for name in ["status", "validate", "report", "self-test", "metrics", "benchmark"]:
         actions.add_parser(name)
     match_parser = actions.add_parser(
         "match", help="Find reference candidates without changing names"
@@ -121,10 +131,24 @@ def run(args: argparse.Namespace) -> int:
             ]
             if args.target:
                 values += ["--target", args.target]
+            if args.json:
+                with redirect_stdout(io.StringIO()):
+                    result_code = init_project.main(values)
+                print(json.dumps({"initialized": True, "state": str(root)}))
+                return result_code
             return init_project.main(values)
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command in {"metrics", "benchmark"}:
+            print(
+                json.dumps(
+                    metrics.report(root)
+                    if args.campaign_command == "metrics"
+                    else benchmark.run(root)
+                )
+            )
+            return 0
         if args.campaign_command == "match":
             result = candidates(latest(root), read(args.reference), args.provenance)
             path = root / "artifacts" / "matches" / (fingerprint(result) + ".json")
@@ -217,6 +241,7 @@ def run(args: argparse.Namespace) -> int:
         else:
             result = {
                 "valid": True,
+                "budget": budget.operate(root, "show"),
                 "state": str(root),
                 "identity": project["ghidra"],
                 "goal": project["goal_objective"],

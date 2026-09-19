@@ -90,6 +90,9 @@ def summary(ledger: dict[str, Any]) -> dict[str, Any]:
         if used is None
         else ("exhausted" if used >= limit else "warning" if used >= limit * 0.8 else "ready"),
         "coverage": [s["scope"] for s in streams],
+        "sources": [
+            {"source": s["source"], "stream": s["stream"], "scope": s["scope"]} for s in streams
+        ],
         "last_measurement": max((s["updated_at"] for s in streams), default=None),
         "campaign_measured_tokens": sum(
             s["last_counter"] - s["baseline"]

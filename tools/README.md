@@ -262,3 +262,40 @@ post-commit mismatch leaves an unresolved, unsaved batch. `reconcile` reads its
 program-local receipt and rechecks the state. It never silently overwrites later
 UI edits or invokes Undo against an unknown transaction. Investigate conflicting
 edits before attempting recovery; a trial result is not proof of saved state.
+
+## Efficiency measurements
+
+`campaign --state DIRECTORY metrics` reports budget observations, cache hits and
+misses, packet bytes, native captures, saved changes, failed attempts, and deferred
+tasks. Counts cover completed instrumented work; a transport failure can perform
+work that is not counted. The accepted-change ratio uses recorded campaign token
+deltas. Missing usage produces a null ratio, never a claimed saving.
+
+`campaign --state DIRECTORY benchmark` runs an isolated offline fixture through
+the actual inventory, cache, packet, and diff code. The fixture contains 1,000
+functions. Five name changes require no native audit; asking for the same five
+functions twice captures them once. It records operation counts and packet sizes,
+not estimated model tokens or a percentage reduction in weekly usage. Benchmark
+artifacts are retained under `artifacts/benchmarks/`.
+
+Cache keys conservatively include program memory, defined data, compiler settings,
+function dependencies, types, symbols, and strings. Packets accept at most 64
+functions, capture in groups of eight, and default to a 32 KiB output ceiling.
+Omitted functions are explicit. Native verification reuses an audit only when
+both the complete snapshot and retained native artifact hashes are unchanged.
+Ghidra's analysis timing statistics are excluded from semantic snapshots; actual
+analyzer settings remain part of every fingerprint.
+
+Session budget commands are separate from weekly account limits:
+
+```bash
+ghidra-manager campaign --state ./campaign budget show
+ghidra-manager campaign --state ./campaign budget set --tokens 150000
+ghidra-manager campaign --state ./campaign metrics
+```
+
+The second command explicitly raises the allowance while retaining usage. Do not
+run it automatically when exhausted. A fresh session requires a new measured
+baseline, and all declared agent scopes must be disjoint. The manager makes no
+paid model calls and cannot interrupt an in-flight response. See the budget
+examples above for recording actual cumulative counters.

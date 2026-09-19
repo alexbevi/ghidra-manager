@@ -633,3 +633,10 @@ bounded proposals independently before campaign finalization.
 Campaign repair proposals support rollback-only trials and reviewed application with byte, ownership,
 p-code, and native jump-table evidence. See [repair trials](tools/README.md#repair-trials)
 and the [analysis repair skill](skills/ghidra-analysis-repair/SKILL.md).
+
+Use `campaign --state DIRECTORY metrics` to see reported token usage alongside
+cache reuse, native captures, saved changes, and deferred work. `benchmark` runs
+the deterministic offline workload; `self-test` runs the packaged Java scripts in
+an isolated temporary Ghidra project. Neither command analyzes a retail project.
+Budget defaults, adjustment commands, measurement coverage, and all proposal/review
+schemas are documented in [tools/README.md](tools/README.md).

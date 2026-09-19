@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.campaign import metrics
 from ghidra_manager.campaign.inventory import fingerprint, read
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
@@ -25,6 +26,19 @@ def capture(root: Path, client: Client, plan_id: str, phase: str, snapshot: dict
         for function in result["functions"]:
             atomic_json(directory / (fingerprint(function["address"]) + ".json"), function)
 
+    metrics.record(root, native_functions_captured=len(addresses), native_audits=1)
+
+
+def manifest(root: Path, plan_id: str) -> str:
+    directory = root / "artifacts" / "batches" / plan_id
+    return fingerprint(
+        {
+            str(p.relative_to(directory)): fingerprint(read(p))
+            for phase in ["before-native", "after-native"]
+            for p in sorted((directory / phase).glob("*.json"))
+        }
+    )
+
 
 def delta(root: Path, plan_id: str) -> dict[str, Any]:
     directory = root / "artifacts" / "batches" / plan_id
@@ -42,6 +56,11 @@ def delta(root: Path, plan_id: str) -> dict[str, Any]:
                     "new_warnings": [line for line in b.splitlines() if "WARNING" in line],
                 }
             )
-    result = {"before_count": len(old), "after_count": len(new), "changed": changed}
+    result = {
+        "before_count": len(old),
+        "after_count": len(new),
+        "changed": changed,
+        "artifacts_hash": manifest(root, plan_id),
+    }
     atomic_json(directory / "native-delta.json", result)
     return result

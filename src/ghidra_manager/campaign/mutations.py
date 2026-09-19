@@ -148,8 +148,15 @@ def reconcile(root: Path, client: Client) -> dict[str, Any]:
             before = read(root / "artifacts" / "snapshots" / (plan["snapshot"] + ".json"))
             verification = readback(plan, before, live)
             if plan["queue"] != "naming":
-                native.capture(root, client, plan["id"], "after-native", live)
-                verification["native_delta"] = native.delta(root, plan["id"])
+                prior_path = root / "artifacts" / "batches" / plan["id"] / "verification.json"
+                prior = read(prior_path) if prior_path.exists() else {}
+                if prior.get("after_snapshot") == fingerprint(live) and prior.get(
+                    "native_delta", {}
+                ).get("artifacts_hash") == native.manifest(root, plan["id"]):
+                    verification["native_delta"] = prior["native_delta"]
+                else:
+                    native.capture(root, client, plan["id"], "after-native", live)
+                    verification["native_delta"] = native.delta(root, plan["id"])
                 if plan["queue"] == "repair":
                     repairs.native_tables(root, plan)
                     repairs.stable(client, live)

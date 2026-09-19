@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.campaign import metrics
 from ghidra_manager.campaign.budget import locked, require_admission
 from ghidra_manager.campaign.inventory import fingerprint, latest, read, scan
 from ghidra_manager.campaign.transport import Client
@@ -23,7 +24,9 @@ def dependency_key(snapshot: dict[str, Any], address: str) -> str:
     callers = sorted(f["address"] for f in functions.values() if address in f["callees"])
     return fingerprint(
         {
-            "packet_version": 1,
+            "packet_version": 2,
+            "memory": snapshot.get("memory"),
+            "data": snapshot.get("data"),
             "collector_version": snapshot["collector_version"],
             "identity": snapshot["identity"],
             "configuration": snapshot["configuration"],
@@ -41,8 +44,15 @@ def packet(
     root: Path, client: Client, addresses: list[str], max_bytes: int = 32768
 ) -> dict[str, Any]:
     require_admission(root)
-    if not addresses or len(set(addresses)) != len(addresses) or max_bytes < 1024:
-        raise ManagerError("Require unique addresses and a packet limit of at least 1024 bytes")
+    if (
+        not addresses
+        or len(addresses) > 64
+        or len(set(addresses)) != len(addresses)
+        or max_bytes < 1024
+    ):
+        raise ManagerError(
+            "Require 1 to 64 unique addresses and a packet limit of at least 1024 bytes"
+        )
     scan(root, client)
     with locked(root):
         snapshot = latest(root)
@@ -51,8 +61,12 @@ def packet(
         keys = {a: dependency_key(snapshot, a) for a in addresses}
         missing = [a for a, key in keys.items() if not (directory / (key + ".json")).exists()]
         if missing:
-            captured = client.script("CampaignEvidence", {"addresses": missing})
-            rows = captured.get("functions", [])
+            rows = []
+            for index in range(0, len(missing), 8):
+                captured = client.script(
+                    "CampaignEvidence", {"addresses": missing[index : index + 8]}
+                )
+                rows.extend(captured.get("functions", []))
             if sorted(r["address"] for r in rows) != sorted(missing):
                 raise ManagerError("Evidence collector omitted or duplicated a function")
             # Reconcile possible UI edits during collection before publishing cache entries.
@@ -85,6 +99,14 @@ def packet(
         # Compact serialization keeps the actual file within the advertised byte ceiling.
         if not path.exists():
             path.write_text(json.dumps(content, sort_keys=True), encoding="utf-8")
+        metrics.record(
+            root,
+            packet_requests=1,
+            cache_hits=len(addresses) - len(missing),
+            cache_misses=len(missing),
+            packet_bytes=path.stat().st_size,
+            evidence_functions_captured=len(missing),
+        )
         return {
             "artifact": str(path),
             "complete": content["complete"],

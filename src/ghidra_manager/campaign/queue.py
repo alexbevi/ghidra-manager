@@ -103,7 +103,9 @@ def operate(root: Path, action: str, task_id: str, **values: Any) -> dict[str, A
             if (
                 batch["status"] != "saved"
                 or batch["plan"] != values.get("batch")
-                or not set(task["addresses"]) <= {c["address"] for c in plan["changes"]}
+                or plan["queue"] != task["queue"]
+                or not set(task["addresses"])
+                <= {c.get("address", c.get("path", c.get("name"))) for c in plan["changes"]}
             ):
                 raise ManagerError("Completion requires a saved batch covering the task")
             task["status"] = "complete"
