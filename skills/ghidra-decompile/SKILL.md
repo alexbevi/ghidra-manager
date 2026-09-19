@@ -60,6 +60,23 @@ interpretation of this skill.
    proves the full objective. Follow the platform's strict blocked-goal rules;
    do not invent a weaker skill-specific threshold.
 
+## Budget every work session
+
+Use `ghidra-manager campaign --state DIRECTORY session start` with the default
+100,000-token allowance, or an explicit `--tokens` value from the user. Record
+available goal/session cumulative usage through `usage record` before starting
+work and after every batch. The first observation establishes the session baseline.
+State which agents the measurement covers; do not add overlapping counters or
+claim missing worker usage is measured. Unknown usage blocks new autonomous work.
+
+Run `admit` before each batch. Report consumed, remaining, and measurement scope
+at the start, after each batch, at 80%, and in the final response. At exhaustion,
+finish only verification, recovery, and saving already-active work; report any
+overshoot. Budget exhaustion pauses admission, not the original objective.
+`budget set --tokens N` changes the allowance without erasing usage. Do not raise
+it autonomously or silently start another session to bypass the limit. The CLI
+cannot interrupt an in-flight response or measure weekly account allowance.
+
 ## Establish campaign state
 
 Choose a state directory outside generated Ghidra installation state. Prefer an

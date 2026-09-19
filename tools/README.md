@@ -40,3 +40,10 @@ usage and records the adjustment. A new session requires finishing the old one;
 its baseline is fresh while campaign totals remain. Reports warn at 80%, identify
 exhaustion at 100%, and expose overshoot. These numbers are counter deltas, not
 weekly allowance, provider charges, or a mechanism to interrupt a model response.
+
+Before each new autonomous batch, record current telemetry and run
+`ghidra-manager campaign --state ./campaign admit`. Exit 3 means new work is
+blocked by an unknown or exhausted budget. `admit --purpose verify`, `recover`,
+and `save` permit closing an existing batch even after exhaustion; these are not
+permission to expand its scope. Admission checks are read-only. They cannot stop
+in-flight model responses, so record overshoot honestly.

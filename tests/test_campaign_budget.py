@@ -1,6 +1,6 @@
 import pytest
 
-from ghidra_manager.campaign.budget import load, operate, summary
+from ghidra_manager.campaign.budget import admission, load, operate, summary
 from ghidra_manager.errors import ManagerError
 
 
@@ -53,3 +53,16 @@ def test_bad_measurements_leave_ledger_unchanged(tmp_path):
     with pytest.raises(ManagerError, match="Finish"):
         operate(tmp_path, "start")
     assert (tmp_path / "budget.json").read_bytes() == before
+
+
+def test_exhaustion_blocks_analysis_but_not_closure(tmp_path):
+    assert not admission(tmp_path)["admitted"]
+    operate(tmp_path, "start", tokens=100)
+    record(tmp_path, 1000, "baseline")
+    assert admission(tmp_path)["admitted"]
+    record(tmp_path, 1100, "exhausted")
+    assert not admission(tmp_path)["admitted"]
+    for purpose in ["verify", "recover", "save"]:
+        assert admission(tmp_path, purpose=purpose)["admitted"]
+    operate(tmp_path, "set", tokens=150)
+    assert admission(tmp_path)["admitted"]

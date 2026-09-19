@@ -16,6 +16,24 @@ from ghidra_manager.storage import atomic_json
 DEFAULT_TOKENS = 100_000
 
 
+def admission(root: Path, *, purpose: str = "analysis") -> dict[str, Any]:
+    """Gate new batches, not completion of a batch that already changed Ghidra."""
+    if purpose not in {"analysis", "verify", "recover", "save"}:
+        raise ManagerError("Unknown admission purpose")
+    result = summary(load(root))
+    result["purpose"] = purpose
+    result["admitted"] = purpose != "analysis" or result["status"] in {"ready", "warning"}
+    return result
+
+
+def require_admission(root: Path) -> None:
+    result = admission(root)
+    if not result["admitted"]:
+        raise ManagerError(
+            f"New work blocked: budget {result['status']}; record usage or adjust the allowance"
+        )
+
+
 def timestamp() -> str:
     return datetime.now(UTC).isoformat()
 

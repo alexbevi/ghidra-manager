@@ -27,6 +27,10 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report"]:
         actions.add_parser(name)
+    admit = actions.add_parser("admit", help="Check budget before starting a batch")
+    admit.add_argument(
+        "--purpose", choices=["analysis", "verify", "recover", "save"], default="analysis"
+    )
 
     for group, verbs in [
         ("budget", ["show", "set"]),
@@ -70,6 +74,10 @@ def run(args: argparse.Namespace) -> int:
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command == "admit":
+            result = budget.admission(root, purpose=args.purpose)
+            print(json.dumps(result, sort_keys=True))
+            return 0 if result["admitted"] else 3
         if args.campaign_command in ("budget", "session", "usage"):
             result = budget.operate(root, args.budget_action, **vars(args))
             print(json.dumps(result, sort_keys=True))
