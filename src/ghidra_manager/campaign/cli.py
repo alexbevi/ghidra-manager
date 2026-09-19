@@ -10,13 +10,15 @@ from typing import Any
 from ghidra_manager.campaign import budget, init_project, queue, report_project, validate_project
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.evidence import packet
-from ghidra_manager.campaign.inventory import read, scan
+from ghidra_manager.campaign.inventory import fingerprint, latest, read, scan
+from ghidra_manager.campaign.matching import candidates
 from ghidra_manager.campaign.mutations import apply, reconcile
 from ghidra_manager.campaign.plans import create
 from ghidra_manager.campaign.selftest import run as selftest
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.campaign.verification import finalize, verify
 from ghidra_manager.errors import ManagerError
+from ghidra_manager.storage import atomic_json
 
 
 def add_parser(commands: Any) -> None:
@@ -35,6 +37,11 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report", "self-test"]:
         actions.add_parser(name)
+    match_parser = actions.add_parser(
+        "match", help="Find reference candidates without changing names"
+    )
+    match_parser.add_argument("--reference", type=Path, required=True)
+    match_parser.add_argument("--provenance", required=True)
     next_parser = actions.add_parser("next", help="Select an admissible bounded task")
     next_parser.add_argument("--queue", choices=["naming", "types", "repair"], default="naming")
     task_parser = actions.add_parser("task")
@@ -116,6 +123,13 @@ def run(args: argparse.Namespace) -> int:
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command == "match":
+            result = candidates(latest(root), read(args.reference), args.provenance)
+            path = root / "artifacts" / "matches" / (fingerprint(result) + ".json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(path, result)
+            print(json.dumps({"artifact": str(path), "candidates": len(result["matches"])}))
+            return 0
         if args.campaign_command == "next":
             print(json.dumps(queue.next_task(root, args.queue)))
             return 0

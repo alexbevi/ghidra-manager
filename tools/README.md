@@ -157,3 +157,14 @@ Queues are `naming`, `types`, and `repair`. Naming tasks have at most ten target
 new evidence or an explicit decision before reopening it. Completion requires
 `task complete ID --batch PLAN_ID` and a saved batch covering its targets.
 Deferred tasks remain part of the goal; an empty naming queue is not completion.
+
+## Reusable identification evidence
+
+`campaign --state DIRECTORY match --reference SNAPSHOT.json --provenance TEXT`
+retains candidates from an explicitly selected reference snapshot. Language and
+compiler must match. Each candidate includes its source identity, byte-match
+status, and reference ABI, never an automatically applied signature. Shape hashes
+ignore operands and are deliberately weak; duplicates stay ambiguous. Review
+strings, callers, constants and register behavior before reusing a name or Watcom
+contract. `scan` also inventories installed Function ID files and language
+compatibility. No third-party downloads or automatic FID application occur.
