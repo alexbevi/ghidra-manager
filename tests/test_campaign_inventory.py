@@ -61,3 +61,22 @@ def test_script_rejects_inner_failure_and_missing_marker(monkeypatch):
     monkeypatch.setattr(Client, "request", lambda *a: {"success": True, "console_output": "error"})
     with pytest.raises(ManagerError, match="complete result"):
         Client(8089, "/fixture.exe").script("CampaignInventory", {})
+
+
+def test_collector_uses_result_file_not_large_console_output(monkeypatch):
+    import base64
+    import json
+    from pathlib import Path
+
+    monkeypatch.setattr(Client, "idle", lambda _: None)
+
+    def request(self, endpoint, body):
+        assert endpoint == "/run_ghidra_script"
+        assert body["timeout_seconds"] == 60
+        arguments = json.loads(base64.b64decode(body["args"]))
+        Path(arguments["output"]).write_text(json.dumps({"complete": True, "large": "x" * 100000}))
+        return {"success": True, "console_output": "CAMPAIGN_RESULT:complete"}
+
+    monkeypatch.setattr(Client, "request", request)
+    result = Client(8089, "/fixture.exe").script("CampaignInventory", {})
+    assert len(result["large"]) == 100000

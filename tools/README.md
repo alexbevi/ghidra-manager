@@ -79,3 +79,8 @@ native decompilation. Other function changes include direct callers. Shared-type
 or configuration changes, and uncertain indirect-consumer coverage, request a
 full audit. The tool reports exactly why. Raw snapshots remain authoritative;
 this classifier never treats cosmetic similarity as proof of semantic parity.
+
+Collectors use the bounded script endpoint and a local temporary result file.
+Only a completion marker enters Ghidra's console: printing a whole inventory can
+stall an open Ghidra log viewer. A timeout is not proof that the server stopped;
+reconcile live state before retrying any write. No automatic write retries occur.

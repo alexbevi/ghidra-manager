@@ -12,6 +12,6 @@ public class CampaignEvidence extends GhidraScript {
     var r=d.decompileFunction(f,30,monitor);if(!r.decompileCompleted())throw new Exception("Decompile "+address+": "+r.getErrorMessage());var row=new JsonObject();row.addProperty("address",address.toString());row.addProperty("decompilation",r.getDecompiledFunction().getC());var ins=new JsonArray();var iter=currentProgram.getListing().getInstructions(f.getBody(),true);while(iter.hasNext()){var i=iter.next();var q=new JsonObject();q.addProperty("address",i.getAddress().toString());q.addProperty("text",i.toString());q.addProperty("bytes",HexFormat.of().formatHex(i.getBytes()));ins.add(q);}row.add("instructions",ins);
     var callers=new JsonArray();for(var c:f.getCallingFunctions(monitor))callers.add(c.getEntryPoint().toString());row.add("callers",callers);rows.add(row);
    }
-  }finally{d.dispose();}result.add("functions",rows);result.addProperty("complete",true);println("CAMPAIGN_RESULT:"+result);
+  }finally{d.dispose();}result.add("functions",rows);result.addProperty("complete",true);java.nio.file.Files.writeString(java.nio.file.Path.of(config.get("output").getAsString()),result.toString());println("CAMPAIGN_RESULT:complete");
  }
 }

@@ -8,6 +8,7 @@ import com.google.gson.*;
 public class CampaignInventory extends GhidraScript {
  String hash(byte[] bytes)throws Exception{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));}
  public void run()throws Exception{
+  var config=JsonParser.parseString(new String(Base64.getDecoder().decode(getScriptArgs()[0]),java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
   var result=new JsonObject();var identity=new JsonObject();var locator=currentProgram.getDomainFile().getProjectLocator();
   identity.addProperty("project",locator.getName());identity.addProperty("project_path",java.nio.file.Path.of(locator.getLocation(),locator.getName()+".gpr").toString());
   identity.addProperty("program_path",currentProgram.getDomainFile().getPathname());identity.addProperty("digest",currentProgram.getExecutableSHA256());
@@ -26,6 +27,6 @@ public class CampaignInventory extends GhidraScript {
   var symbols=new JsonArray();var si=currentProgram.getSymbolTable().getAllSymbols(true);while(si.hasNext()){monitor.checkCancelled();var s=si.next();var row=new JsonObject();row.addProperty("id",s.getID());row.addProperty("address",s.getAddress().toString());row.addProperty("name",s.getName());row.addProperty("kind",s.getSymbolType().toString());row.addProperty("namespace",s.getParentNamespace().getName(true));row.addProperty("primary",s.isPrimary());symbols.add(row);}result.add("symbols",symbols);
   var types=new JsonArray();var ti=currentProgram.getDataTypeManager().getAllDataTypes();while(ti.hasNext()){monitor.checkCancelled();var t=ti.next();var row=new JsonObject();row.addProperty("path",t.getPathName());row.addProperty("length",t.getLength());row.addProperty("definition",t.toString());types.add(row);}result.add("types",types);
   var strings=new JsonArray();var di=currentProgram.getListing().getDefinedData(true);while(di.hasNext()){var d=di.next();if(d.hasStringValue()){var row=new JsonObject();row.addProperty("address",d.getAddress().toString());row.addProperty("value",String.valueOf(d.getValue()));strings.add(row);}}result.add("strings",strings);
-  result.addProperty("schema_version",1);result.addProperty("collector_version",1);result.addProperty("complete",true);println("CAMPAIGN_RESULT:"+result);
+  result.addProperty("schema_version",1);result.addProperty("collector_version",1);result.addProperty("complete",true);java.nio.file.Files.writeString(java.nio.file.Path.of(config.get("output").getAsString()),result.toString());println("CAMPAIGN_RESULT:complete");
  }
 }

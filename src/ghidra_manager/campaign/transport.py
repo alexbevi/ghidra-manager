@@ -7,6 +7,8 @@ import json
 import urllib.parse
 import urllib.request
 from importlib.resources import files
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from ghidra_manager.errors import ManagerError
@@ -51,21 +53,28 @@ class Client:
 
     def script(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.idle()
-        code = files("ghidra_manager.campaign").joinpath(name + ".java").read_text()
-        encoded = base64.b64encode(json.dumps(arguments).encode()).decode()
-        response = self.request("/run_script_inline", {"code": code, "args": encoded})
-        output = response.get("console_output", "") if isinstance(response, dict) else response
-        if not isinstance(output, str):
-            raise ManagerError("Malformed script response")
-        lines = [
-            line.removeprefix("CAMPAIGN_RESULT:")
-            for line in output.splitlines()
-            if line.startswith("CAMPAIGN_RESULT:")
-        ]
-        if len(lines) != 1:
-            raise ManagerError("Bundled script did not return exactly one complete result")
-        result = json.loads(lines[0])
-        if not isinstance(result, dict) or result.get("complete") is not True:
-            raise ManagerError(f"Incomplete script result: {result}")
+        script = files("ghidra_manager.campaign").joinpath(name + ".java")
+        with TemporaryDirectory(prefix="ghidra-campaign-") as directory:
+            output_path = Path(directory) / "result.json"
+            encoded = base64.b64encode(
+                json.dumps({**arguments, "output": str(output_path)}).encode()
+            ).decode()
+            response = self.request(
+                "/run_ghidra_script",
+                {
+                    "script_name": str(script),
+                    "args": encoded,
+                    "timeout_seconds": 60,
+                    "capture_output": True,
+                },
+            )
+            output = response.get("console_output", "") if isinstance(response, dict) else response
+            if not isinstance(output, str) or "CAMPAIGN_RESULT:complete" not in output:
+                raise ManagerError("Bundled script did not return a complete result")
+            if not output_path.is_file():
+                raise ManagerError("Bundled script did not write its result artifact")
+            result = json.loads(output_path.read_text())
+            if not isinstance(result, dict) or result.get("complete") is not True:
+                raise ManagerError("Incomplete script result")
         self.idle()
         return result
