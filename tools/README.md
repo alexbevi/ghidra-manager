@@ -47,3 +47,14 @@ blocked by an unknown or exhausted budget. `admit --purpose verify`, `recover`,
 and `save` permit closing an existing batch even after exhaustion; these are not
 permission to expand its scope. Admission checks are read-only. They cannot stop
 in-flight model responses, so record overshoot honestly.
+
+## Complete inventories
+
+`ghidra-manager campaign --state ./campaign scan --port 8089` captures the exact
+program recorded by `init`. A bundled collector walks complete Ghidra iterators,
+including qualified addresses, symbols, variables, types, strings, call edges,
+flow overrides and program options. It reports counts and a content-addressed
+artifact path, not the inventory itself. It refuses busy analysis, script errors,
+partial results, and identity drift. Identical captures reuse the existing file.
+Scripts must already be enabled by your GhidraMCP policy; the manager does not
+enable them. Scanning never edits program semantics or saves Ghidra.
