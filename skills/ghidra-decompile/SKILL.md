@@ -16,33 +16,32 @@ Recover a program incrementally while keeping Ghidra as the semantic source of
 truth and a small external project directory as the coordination checkpoint.
 Prefer verified, conservative names over complete-looking speculation.
 
-## Load the supporting guidance
+## Load only the current mode
 
-- Read [references/orchestration.md](references/orchestration.md) before
-  delegating or resuming a multi-agent campaign.
-- Read [references/evidence-and-naming.md](references/evidence-and-naming.md)
-  before proposing or applying names, types, classes, or comments.
-- Read [references/project-state.md](references/project-state.md) before
-  initializing, validating, or repairing campaign state.
-- Read [references/analysis-fidelity.md](references/analysis-fidelity.md)
-  before accepting an imported program as the semantic analysis target.
-- Read [references/function-identification.md](references/function-identification.md)
-  before manually naming statically linked compiler or library code.
-- Read [references/campaign-profiles.md](references/campaign-profiles.md) before
-  choosing symbol cleanup or behavior recovery as the campaign denominator.
-- Read [references/behavior-slices.md](references/behavior-slices.md) before
-  creating or verifying reimplementation behavior records.
-- Read [references/reachability-and-parity.md](references/reachability-and-parity.md)
-  before classifying implementation coverage or reporting progress.
-- Read [references/runtime-validation.md](references/runtime-validation.md) before
-  claiming runtime-observed behavior or semantic parity.
-- Read [references/resource-entry-graphs.md](references/resource-entry-graphs.md)
-  when archives, scripts, media, saves, or other game data drive behavior.
-- Read [references/scummvm-handoff.md](references/scummvm-handoff.md) when the
-  reimplementation target is a ScummVM engine.
+Read the [manager tool guide](../../tools/README.md) for command schemas and
+budget accounting. Use its bounded artifacts instead of regenerating scripts or
+loading full historical checkpoints.
 
-The coordinator must read the required references itself. Do not delegate
-interpretation of this skill.
+- At first import, read [analysis fidelity](references/analysis-fidelity.md).
+- For names and types, read [evidence and naming](references/evidence-and-naming.md).
+  Before runtime/library naming, also read
+  [function identification](references/function-identification.md).
+- At initialization or when repairing state, read
+  [project state](references/project-state.md) and
+  [campaign profiles](references/campaign-profiles.md).
+- For independent review, use [ghidra-verify](../ghidra-verify/SKILL.md).
+- For ownership, shared-tail, or dispatcher damage, use
+  [ghidra-analysis-repair](../ghidra-analysis-repair/SKILL.md).
+- For delegated work, read [orchestration](references/orchestration.md).
+- For reimplementation, read [behavior slices](references/behavior-slices.md)
+  and [reachability and parity](references/reachability-and-parity.md).
+  Load [resource entry graphs](references/resource-entry-graphs.md) when game
+  data drives execution, [runtime validation](references/runtime-validation.md)
+  for runtime claims, and [ScummVM handoff](references/scummvm-handoff.md) for
+  that target.
+
+Read a reference when entering its mode, not at every batch. The coordinator
+retains responsibility for interpreting applicable requirements.
 
 ## Preserve the goal
 
@@ -93,33 +92,18 @@ program-specific artifacts under `skills/ghidra-decompile/`.
 
 Prefer the packaged `ghidra-manager campaign --state DIRECTORY init` command.
 Use its `status`, `validate`, and `report` commands for offline campaign state.
-The script entrypoints below remain compatible.
-
-Initialize it once:
+Initialize once with the full Ghidra program path, then resume the same directory:
 
 ```bash
-python3 scripts/init_project.py \
-  --output <state-dir> \
-  --project <ghidra-project> \
-  --program <program-name> \
-  --program-path <ghidra-program-path> \
-  --profile <symbol-recovery-or-reimplementation> \
-  --target <generic-or-scummvm> \
-  --goal "<exact goal objective>"
+ghidra-manager campaign --state <state-dir> init --project <project> \
+  --program <program-name> --program-path /<program-name> \
+  --profile symbol-recovery --goal "<exact goal objective>"
+ghidra-manager campaign --state <state-dir> validate
+ghidra-manager campaign --state <state-dir> report
 ```
 
-Run `scripts/validate_project.py <state-dir>` before resuming a campaign and
-after material state edits. Never overwrite an existing campaign with the
-initializer.
-
-Render a deterministic review summary after validation:
-
-```bash
-python3 scripts/report_project.py <state-dir> \
-  --output <state-dir>/REPORT.md
-```
-
-Treat JSON and JSONL as canonical; regenerate `REPORT.md` instead of editing it.
+Treat JSON and JSONL as canonical; regenerate summaries instead of editing them.
+The old scripts are compatibility wrappers. New workflows use the manager CLI.
 
 ## Choose the campaign profile
 
@@ -240,30 +224,35 @@ Use strings as anchors:
    nearby tables.
 4. Name behavior from control flow and data use, not from a string alone.
 
-## Phase 3: Fan out by bounded subsystem
+## Phase 3: Select bounded work
 
-Keep the coordinator active and spawn only concrete tasks with an address
-range, root set, string cluster, table, or subsystem boundary. Use waves sized
-to available concurrency.
+Use `task add` and `next` to select a coherent subsystem or evidence-backed
+frontier. Keep naming tasks to ten targets or fewer. Separate naming, types, and
+repair queues; dependencies must be complete before a task starts. After two
+failures, retain the evidence and defer the task. An explicit retry needs a reason.
 
-Good first-wave tasks are:
-
-- entry-path and direct-call indexing;
-- string/xref clustering;
-- indirect-call, jump-table, and structured-data discovery.
-
-Later waves can cover independent subsystems. Use the role and handoff
-contracts in `references/orchestration.md`. Never let two write-capable agents
-mutate the same Ghidra program concurrently.
+Default to one analyst and one independent reviewer. Delegate additional work
+only when authorized, independently useful, and covered by the remaining budget.
+Give workers an address set, bounded packet, acceptance criteria, and output
+artifact path. Never allow concurrent mutation of one program.
 
 ## Manager-backed batches
 
 Use `scan`, `packet`, and `diff` to collect and compare evidence locally. Read the
-bounded packet, not entire snapshot collections. Keep naming separate from types
+bounded packet, not entire snapshot collections. Consult `metrics` to check
+cache reuse and accepted changes per reported token. Do not convert local
+operation counts into claimed model-token savings. Keep naming separate from types
 and analysis repair. Submit a declarative `plan`, then `apply`, `verify`, and
 `finalize` with a passing independent review. Use the `ghidra-verify` companion
 skill for that review. A tool success is not evidence that a name is correct.
 A timed-out write requires `reconcile`, never an automatic retry.
+
+For layout and ABI changes, review the full changed native-output set. Register
+arguments and returns require explicit storage; do not guess Watcom preservation
+rules from a compiler label. A custom calling convention stays program-local.
+For control flow, run `trial`, obtain independent review bound to the trial hash,
+then use `apply --trial-review`. The final review must bind to the actual applied
+snapshot. Neither a passing trial nor a clean C listing is a saved checkpoint.
 
 Default to one analyst and one reviewer with fresh task-local context. Additional
 workers need a bounded task and available budget. Do not reload every historical
@@ -351,8 +340,8 @@ Treat completion as unproven until all applicable checks pass:
 - all applied batches have independent readback verification;
 - important roots, dispatchers, types, and subsystem boundaries are decorated;
 - architecture and cross-reference notes match current Ghidra state;
-- `scripts/validate_project.py <state-dir>` passes.
-- `scripts/report_project.py <state-dir>` renders from canonical state without
+- `ghidra-manager campaign --state <state-dir> validate` passes.
+- `ghidra-manager campaign --state <state-dir> report` renders from canonical state without
   stale or dangling references.
 
 Apply symbol-count and placeholder requirements only to `symbol-recovery` or an

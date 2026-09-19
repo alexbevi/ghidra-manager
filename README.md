@@ -409,13 +409,19 @@ comparison safeguards. The bundled
 coordinates persistent evidence, bounded analysis, verified Ghidra mutations,
 and completion audits.
 
-The repository directories are the source of truth. Install or link either
+The [ghidra-verify](skills/ghidra-verify/SKILL.md) companion handles independent
+semantic reviews, and [ghidra-analysis-repair](skills/ghidra-analysis-repair/SKILL.md)
+handles ownership and control-flow trials.
+
+The repository directories are the source of truth. Install or link each needed
 skill into `$CODEX_HOME/skills` and start a new Codex session to make it
 available:
 
 ```text
 $CODEX_HOME/skills/ghidra-manager -> <checkout>/skills/ghidra-manager
 $CODEX_HOME/skills/ghidra-decompile -> <checkout>/skills/ghidra-decompile
+$CODEX_HOME/skills/ghidra-verify -> <checkout>/skills/ghidra-verify
+$CODEX_HOME/skills/ghidra-analysis-repair -> <checkout>/skills/ghidra-analysis-repair
 ```
 
 Keep checkout-local decompilation campaigns under `.ghidra-decompile/`; Git

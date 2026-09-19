@@ -127,6 +127,33 @@ This command requires two distinct responding project instances. When two
 programs are open inside one project, use explicit full-path MCP calls as
 described above; do not launch the same project twice.
 
+## Run efficient reverse-engineering campaigns
+
+Use `ghidra-manager campaign --state DIRECTORY` for lifecycle, budgets, inventory,
+bounded evidence packets, immutable plans, task queues, review, and saving. See
+[tools/README.md](../../tools/README.md) for complete examples and supported schemas.
+Keep this state outside `.managed/`. The manager does not call model APIs.
+
+Inspect `status`, `budget show`, and any unfinished batch before starting work.
+Start one resumable session, record actual cumulative usage with explicit,
+nonoverlapping agent scopes, then use `admit` before new analysis. The default
+100,000-token allowance warns at 80% and gates new work at 100%. Verification,
+recovery, and saving can finish past the cap. `budget set --tokens N` preserves
+usage and requires an explicit budget decision; do not silently reset a session.
+
+Use `scan`, `packet`, `diff`, and `match` to offload deterministic collection and
+candidate selection. A match does not prove a name. Separate naming, layout/ABI,
+and repair plans. `apply` leaves changes unsaved; independent `verify` and
+`finalize` complete a batch. A timeout requires reconciliation, not another write.
+Repair application additionally needs a reviewed, proven-rollback trial.
+
+Use [ghidra-decompile](../ghidra-decompile/SKILL.md) for semantic recovery,
+[ghidra-verify](../ghidra-verify/SKILL.md) for independent review, and
+[ghidra-analysis-repair](../ghidra-analysis-repair/SKILL.md) for broken ownership or
+control-flow analysis. `metrics` reports measured counters; `benchmark` is offline
+and synthetic. `self-test` creates an isolated temporary Ghidra project using the
+managed installation and packaged scripts. It never opens a retail project.
+
 ## Protect managed state
 
 - Never edit `.managed/` or platform user-data homes directly.
