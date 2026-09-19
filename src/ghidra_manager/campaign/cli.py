@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ghidra_manager.campaign import budget, init_project, report_project, validate_project
+from ghidra_manager.campaign import budget, init_project, queue, report_project, validate_project
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.evidence import packet
 from ghidra_manager.campaign.inventory import read, scan
@@ -35,6 +35,22 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report", "self-test"]:
         actions.add_parser(name)
+    next_parser = actions.add_parser("next", help="Select an admissible bounded task")
+    next_parser.add_argument("--queue", choices=["naming", "types", "repair"], default="naming")
+    task_parser = actions.add_parser("task")
+    task_actions = task_parser.add_subparsers(dest="task_action", required=True)
+    for verb in ["add", "start", "fail", "defer", "retry", "complete"]:
+        child = task_actions.add_parser(verb)
+        child.add_argument("task_id")
+        if verb == "add":
+            child.add_argument("--queue", choices=["naming", "types", "repair"], default="naming")
+            child.add_argument("--address", action="append", dest="addresses", required=True)
+            child.add_argument("--depends-on", action="append", default=[])
+            child.add_argument("--priority", type=int, default=0)
+        if verb in {"fail", "defer", "retry"}:
+            child.add_argument("--reason", required=True)
+        if verb == "complete":
+            child.add_argument("--batch", required=True)
     for verb in ("apply", "reconcile", "verify", "finalize"):
         command = actions.add_parser(verb)
         command.add_argument("--port", type=int, default=8089)
@@ -100,6 +116,13 @@ def run(args: argparse.Namespace) -> int:
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command == "next":
+            print(json.dumps(queue.next_task(root, args.queue)))
+            return 0
+        if args.campaign_command == "task":
+            task_values = {k: v for k, v in vars(args).items() if k != "task_id"}
+            print(json.dumps(queue.operate(root, args.task_action, args.task_id, **task_values)))
+            return 0
         if args.campaign_command == "self-test":
             print(json.dumps(selftest(root)))
             return 0

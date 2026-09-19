@@ -145,3 +145,15 @@ It confirms the program is no longer modified before marking the batch saved.
 Save errors remain distinct from application failures. Review identities record
 workflow responsibility; they are not authentication or proof of independence.
 Use the `ghidra-verify` companion skill for semantic review.
+
+## Bounded queues
+
+Use `task add ID --queue naming --address ADDRESS` with optional `--depends-on ID`
+and `--priority N`; `next --queue naming` deterministically selects eligible work.
+Queues are `naming`, `types`, and `repair`. Naming tasks have at most ten targets.
+`task start ID` checks budget, dependencies and the single active-task rule.
+`task fail ID --reason TEXT` records an attempt; two failures defer the task.
+`task defer` explicitly parks difficult work. `task retry ID --reason TEXT` records
+new evidence or an explicit decision before reopening it. Completion requires
+`task complete ID --batch PLAN_ID` and a saved batch covering its targets.
+Deferred tasks remain part of the goal; an empty naming queue is not completion.
