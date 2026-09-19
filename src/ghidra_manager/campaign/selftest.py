@@ -46,14 +46,31 @@ def run(root: Path) -> dict[str, Any]:
                 "CampaignFixture.java",
                 temporary,
                 "prepare",
-                "-postScript", "CampaignFixture.java", temporary, "failure",
-                "-postScript", "CampaignFixture.java", temporary, "verify",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "failure",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "verify",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "layout-failure",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "layout-verify",
                 "-deleteProject",
             ],
             find_java21(),
             log,
         )
-    passed = code == 0 and "CAMPAIGN_FIXTURE_PASS" in log.read_text(errors="replace")
+    passed = code == 0 and all(
+        marker in log.read_text(errors="replace")
+        for marker in ["CAMPAIGN_FIXTURE_PASS", "CAMPAIGN_LAYOUT_PASS"]
+    )
     if not passed:
         raise ManagerError(f"Campaign fixture failed; inspect {log}")
     return {"passed": True, "log": str(log), "retail_program_modified": False}

@@ -168,3 +168,21 @@ ignore operands and are deliberately weak; duplicates stay ambiguous. Review
 strings, callers, constants and register behavior before reusing a name or Watcom
 contract. `scan` also inventories installed Function ID files and language
 compatibility. No third-party downloads or automatic FID application occur.
+
+## Layout changes
+
+Set `queue` to `types` in a proposal. A `structure` change declares a new absolute
+`path`, exact `length`, and `fields` containing `offset`, `length`, `type`, and
+`name`. Existing structures are not replaced implicitly. A `data_type` change
+identifies `address`, exact `length`, and the existing or earlier-declared `type`.
+Every change requires evidence IDs. Field sizes must match resolved Ghidra types;
+overlapping fields, code/function overlap, and partially covered existing data
+are rejected. No stack-variable merging occurs.
+
+Apply captures native output before and after layout changes and retains a compact
+`native-delta.json` for independent review. Exact layout readback and unchanged
+machine code/function ownership are required before the same finalization gate.
+The headless self-test covers type creation and rollback after a code-overlap error.
+
+For type/ABI reviews, include `reviewed_native_functions` with every changed
+function address from the native delta. Missing coverage prevents finalization.

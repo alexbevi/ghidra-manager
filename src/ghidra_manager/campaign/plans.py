@@ -42,6 +42,10 @@ def target(snapshot: dict[str, Any], change: dict[str, Any]) -> dict[str, Any]:
 
 
 def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
+    if proposal.get("queue") == "types":
+        from ghidra_manager.campaign.layouts import create as create_layout
+
+        return create_layout(root, proposal)
     require_admission(root)
     with locked(root):
         snapshot = latest(root)

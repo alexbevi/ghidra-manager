@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ghidra_manager.campaign import layouts, native
 from ghidra_manager.campaign.budget import locked, require_admission, timestamp
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.inventory import check_identity, fingerprint, latest, read
@@ -15,6 +16,15 @@ from ghidra_manager.storage import atomic_json
 
 
 def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    if plan["queue"] == "types":
+        layouts.readback(plan, before, after)
+        return {
+            "complete": True,
+            "plan": plan["id"],
+            "after_snapshot": fingerprint(after),
+            "delta": compare(before, after),
+            "verified_at": timestamp(),
+        }
     delta = compare(before, after)
     allowed_functions = {c["address"] for c in plan["changes"] if c["kind"] != "global"}
     if any(c["address"] not in allowed_functions for c in delta["changed"]):
@@ -38,7 +48,7 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
 def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
     require_admission(root)
     plan = load_plan(plan_path)
-    if plan["queue"] != "naming":
+    if plan["queue"] not in {"naming", "types"}:
         raise ManagerError("This runner supports only naming plans")
     with locked(root):
         progress = read(root / "progress.json")
@@ -55,8 +65,13 @@ def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
         if fingerprint(before) != plan["snapshot"] or fingerprint(retained) != plan["snapshot"]:
             raise ManagerError("Stale plan snapshot; rescan and review a new proposal")
         for change in plan["changes"]:
-            if fingerprint(target(before, change)) != change["expected"]:
+            if (
+                plan["queue"] == "naming"
+                and fingerprint(target(before, change)) != change["expected"]
+            ):
                 raise ManagerError("Stale target fingerprint")
+        if plan["queue"] == "types":
+            native.capture(root, client, plan["id"], "before-native", before)
         batch = {
             "schema_version": 1,
             "plan": plan["id"],
@@ -66,12 +81,18 @@ def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
         }
         atomic_json(batch_path, batch)
         # An exception leaves in-flight state; never automatically retry an uncertain write.
-        response = client.script("CampaignRename", {"plan": plan, "before": before})
+        response = client.script(
+            "CampaignRename" if plan["queue"] == "naming" else "CampaignTypes",
+            {"plan": plan, "before": before},
+        )
         if response.get("transaction") != plan["id"] or response.get("committed") is not True:
             raise ManagerError("Mutation outcome ambiguous; run reconcile")
         after = client.script("CampaignInventory", {})
         normalize(after)
         verification = readback(plan, before, after)
+        if plan["queue"] == "types":
+            native.capture(root, client, plan["id"], "after-native", after)
+            verification["native_delta"] = native.delta(root, plan["id"])
         directory = root / "artifacts" / "batches" / plan["id"]
         directory.mkdir(parents=True, exist_ok=True)
         atomic_json(directory / "after.json", after)
@@ -107,6 +128,9 @@ def reconcile(root: Path, client: Client) -> dict[str, Any]:
         if journal.get(plan["id"]) == "applied":
             before = read(root / "artifacts" / "snapshots" / (plan["snapshot"] + ".json"))
             verification = readback(plan, before, live)
+            if plan["queue"] == "types":
+                native.capture(root, client, plan["id"], "after-native", live)
+                verification["native_delta"] = native.delta(root, plan["id"])
             directory = root / "artifacts" / "batches" / plan["id"]
             directory.mkdir(parents=True, exist_ok=True)
             atomic_json(directory / "after.json", live)

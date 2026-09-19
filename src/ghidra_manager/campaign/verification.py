@@ -44,6 +44,12 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
         required = {e for c in plan["changes"] for e in c["evidence_ids"]}
         if not required <= set(review.get("evidence_ids", [])):
             raise ManagerError("Review must address every change's evidence")
+        if plan["queue"] != "naming":
+            changed = {c["address"] for c in verification.get("native_delta", {}).get("changed", [])}
+            if "native_delta" not in verification or not changed <= set(
+                review.get("reviewed_native_functions", [])
+            ):
+                raise ManagerError("Review must explicitly cover every changed native function")
         live = client.script("CampaignInventory", {})
         normalize(live)
         check_identity(root, live)
@@ -80,6 +86,8 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
         }
         with (root / "renames.jsonl").open("a", encoding="utf-8") as stream:
             for index, change in enumerate(plan["changes"]):
+                if plan["queue"] != "naming":
+                    continue
                 record_id = f"rn-{plan['id']}-{index}"
                 if record_id not in existing:
                     stream.write(
@@ -101,4 +109,5 @@ def finalize(root: Path, client: Client, review: dict[str, Any]) -> dict[str, An
                         )
                         + "\n"
                     )
+        atomic_json(directory / "receipt.json", batch)
         return {"plan": plan["id"], "status": "saved", "reviewer": review["reviewer"]}
