@@ -46,6 +46,10 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
         from ghidra_manager.campaign.layouts import create as create_layout
 
         return create_layout(root, proposal)
+    if proposal.get("queue") == "repair":
+        from ghidra_manager.campaign.repairs import create as create_repair
+
+        return create_repair(root, proposal)
     require_admission(root)
     with locked(root):
         snapshot = latest(root)

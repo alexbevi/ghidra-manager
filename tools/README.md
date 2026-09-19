@@ -200,3 +200,37 @@ string, with evidence IDs. It creates only a new program-local compiler extensio
 existing models are not silently replaced. XML declarations/entities are rejected.
 No installation files change. Register storage alone does not prove preservation:
 the model and affected native caller outputs require independent review.
+
+## Repair trials
+
+Repair proposals use `queue: "repair"` with an author and evidence-backed changes.
+Supported operations are metadata only:
+
+| Kind | Additional fields |
+| --- | --- |
+| `body` | `address`, `old_body`, `ranges` of inclusive address pairs |
+| `remove_function` | `address`, `old_body`, `old_name` |
+| `flow_override` | `address`, exact lowercase hex `bytes`, `old_override`, `override` as `NONE` or `BRANCH` |
+| `jump_table` | instruction `address`, exact `bytes`, owning `function`, ordered `targets` |
+| `analyzer_option` | `address` containing the option name, boolean `old_value`, boolean `value` |
+
+Every operation also has `kind` and existing `evidence_ids`. The only supported
+analyzer option is `Shared Return Calls.Assume Contiguous Functions Only` in the
+program's Analysis options. Plans allow at most 100 operations and 256 targets
+per jump table. Ghidra validates instruction extents, ownership, old values, and
+existing flow conflicts inside the transaction. Order removal before expanding
+an owner, and set a synthetic return's BRANCH override before adding its table.
+No executable bytes are patched.
+
+Run `plan PROPOSAL.json`, then `trial PLAN.json --port 8089`. A trial captures
+native output and a candidate snapshot, rolls back, and independently compares
+the restored inventory with the original snapshot. Inspect the retained trial,
+native delta, raw/overridden p-code, and native jump tables before approval.
+`trial-reconcile --port 8089` resolves a timed-out trial only when its completion
+receipt exists and a fresh snapshot proves rollback. Otherwise it blocks further
+mutations. Reconciliation does not approve the trial; run a new trial to obtain a
+reviewable result. The isolated `self-test` checks RET stack semantics, computed
+jump targets, public-return preservation, and rollback after the script boundary.
+
+The [analysis repair skill](../skills/ghidra-analysis-repair/SKILL.md) guides this
+workflow. Stable application and independent finalization are separate steps.

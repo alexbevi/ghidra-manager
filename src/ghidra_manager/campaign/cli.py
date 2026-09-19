@@ -58,10 +58,10 @@ def add_parser(commands: Any) -> None:
             child.add_argument("--reason", required=True)
         if verb == "complete":
             child.add_argument("--batch", required=True)
-    for verb in ("apply", "reconcile", "verify", "finalize"):
+    for verb in ("trial-reconcile", "trial", "apply", "reconcile", "verify", "finalize"):
         command = actions.add_parser(verb)
         command.add_argument("--port", type=int, default=8089)
-        if verb == "apply":
+        if verb in {"apply", "trial"}:
             command.add_argument("plan", type=Path)
         if verb == "finalize":
             command.add_argument("review", type=Path)
@@ -163,6 +163,24 @@ def run(args: argparse.Namespace) -> int:
                 else finalize(root, client, read(args.review))
             )
             print(json.dumps(result))
+            return 0
+        if args.campaign_command == "trial-reconcile":
+            from ghidra_manager.campaign.repairs import reconcile_trial
+
+            print(
+                json.dumps(
+                    reconcile_trial(root, Client(args.port, project["ghidra"]["program_path"]))
+                )
+            )
+            return 0
+        if args.campaign_command == "trial":
+            from ghidra_manager.campaign.repairs import trial
+
+            print(
+                json.dumps(
+                    trial(root, Client(args.port, project["ghidra"]["program_path"]), args.plan)
+                )
+            )
             return 0
         if args.campaign_command in {"apply", "reconcile"}:
             client = Client(args.port, project["ghidra"]["program_path"])

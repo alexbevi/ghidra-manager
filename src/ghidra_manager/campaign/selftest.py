@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.resources import files
 from pathlib import Path
+from shutil import copy2
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -25,7 +26,7 @@ def run(root: Path) -> dict[str, Any]:
     log = directory / "headless.log"
     with TemporaryDirectory(prefix="ghidra-manager-fixture-") as temporary:
         fixture = Path(temporary) / "fixture.bin"
-        fixture.write_bytes(b"\xc3\xc3")
+        fixture.write_bytes(b"\x50\xc3\xc3\xc3\xc3")
         code = run_headless_fixture(
             paths.ghidra / pair.ghidra_version,
             [
@@ -35,6 +36,8 @@ def run(root: Path) -> dict[str, Any]:
                 str(fixture),
                 "-loader",
                 "BinaryLoader",
+                "-loader-baseAddr",
+                "0x1000",
                 "-processor",
                 "x86:LE:32:default",
                 "-cspec",
@@ -65,15 +68,31 @@ def run(root: Path) -> dict[str, Any]:
                 "-postScript",
                 "CampaignFixture.java",
                 temporary,
+                "repair-trial",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "repair-verify",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
                 "abi",
                 "-deleteProject",
             ],
             find_java21(),
             log,
         )
+        for artifact in Path(temporary).glob("*.json"):
+            copy2(artifact, directory / artifact.name)
     passed = code == 0 and all(
         marker in log.read_text(errors="replace")
-        for marker in ["CAMPAIGN_FIXTURE_PASS", "CAMPAIGN_LAYOUT_PASS", "CAMPAIGN_ABI_PASS"]
+        for marker in [
+            "CAMPAIGN_FIXTURE_PASS",
+            "CAMPAIGN_LAYOUT_PASS",
+            "CAMPAIGN_ABI_PASS",
+            "CAMPAIGN_REPAIR_TRIAL_PASS",
+            "CAMPAIGN_REPAIR_CAPTURE_PASS",
+        ]
     )
     if not passed:
         raise ManagerError(f"Campaign fixture failed; inspect {log}")

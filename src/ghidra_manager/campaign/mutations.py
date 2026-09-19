@@ -51,6 +51,9 @@ def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
     if plan["queue"] not in {"naming", "types"}:
         raise ManagerError("This runner supports only naming plans")
     with locked(root):
+        from ghidra_manager.campaign.repairs import require_clear
+
+        require_clear(root)
         progress = read(root / "progress.json")
         if progress.get("active_mutation_lease"):
             raise ManagerError("An existing campaign mutation lease requires reconciliation")

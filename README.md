@@ -629,3 +629,7 @@ commands. See the [tool guide](tools/README.md) for examples and compatibility.
 
 The [`ghidra-verify` companion skill](skills/ghidra-verify/SKILL.md) reviews
 bounded proposals independently before campaign finalization.
+
+Campaign repair proposals support rollback-only trials with byte, ownership,
+p-code, and native jump-table evidence. See [repair trials](tools/README.md#repair-trials)
+and the [analysis repair skill](skills/ghidra-analysis-repair/SKILL.md).

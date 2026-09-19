@@ -14,6 +14,8 @@ from ghidra_manager.storage import atomic_json
 def capture(root: Path, client: Client, plan_id: str, phase: str, snapshot: dict[str, Any]) -> None:
     directory = root / "artifacts" / "batches" / plan_id / phase
     directory.mkdir(parents=True, exist_ok=True)
+    for previous in directory.glob("*.json"):
+        previous.unlink()
     addresses = sorted(f["address"] for f in snapshot["functions"] if not f.get("thunk"))
     for index in range(0, len(addresses), 8):
         group = addresses[index : index + 8]
