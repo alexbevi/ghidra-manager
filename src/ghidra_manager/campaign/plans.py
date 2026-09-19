@@ -16,6 +16,15 @@ from ghidra_manager.storage import atomic_json
 def target(snapshot: dict[str, Any], change: dict[str, Any]) -> dict[str, Any]:
     if change["kind"] == "function":
         matches = [f for f in snapshot["functions"] if f["address"] == change["address"]]
+    elif change["kind"] in {"parameter", "local"}:
+        functions = [f for f in snapshot["functions"] if f["address"] == change["address"]]
+        matches = [
+            v
+            for f in functions
+            for v in f["variables"]
+            if v["storage"] == change.get("storage")
+            and v["parameter"] == (change["kind"] == "parameter")
+        ]
     elif change["kind"] == "global":
         matches = [
             s
@@ -49,7 +58,15 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
         touched: set[str] = set()
         new_names: set[tuple[str, str]] = set()
         for change in proposal["changes"]:
-            allowed = {"kind", "address", "old_name", "new_name", "evidence_ids", "symbol_id"}
+            allowed = {
+                "kind",
+                "address",
+                "old_name",
+                "new_name",
+                "evidence_ids",
+                "symbol_id",
+                "storage",
+            }
             if set(change) - allowed or not {
                 "kind",
                 "address",
@@ -74,15 +91,25 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
                     "kind": change["kind"],
                     "address": change["address"],
                     "symbol_id": change.get("symbol_id"),
+                    "storage": change.get("storage"),
                 }
             )
             if key in touched:
                 raise ManagerError("Duplicate target in proposal")
             namespace = item.get("namespace", "Global")
+            occupied = snapshot["symbols"]
+            if change["kind"] in {"parameter", "local"}:
+                namespace = change["address"]
+                occupied = [
+                    dict(v, namespace=namespace)
+                    for f in snapshot["functions"]
+                    if f["address"] == change["address"]
+                    for v in f["variables"]
+                ]
             name_key = (namespace, change["new_name"])
             if name_key in new_names or any(
                 s["name"] == change["new_name"] and s.get("namespace", "Global") == namespace
-                for s in snapshot["symbols"]
+                for s in occupied
             ):
                 raise ManagerError("Name collision in target namespace")
             new_names.add(name_key)

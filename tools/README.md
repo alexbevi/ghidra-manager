@@ -102,3 +102,9 @@ identifiers. No type or flow fields are accepted. A retained plan binds the
 snapshot, target fingerprints, and author; editing it invalidates its identifier.
 Planning does not connect to or mutate Ghidra. Semantic confidence still requires
 independent evidence review.
+
+Stored variables use `kind: parameter` or `kind: local`, the owning function's
+`address`, and the exact `storage` string in the snapshot. The target must resolve
+uniquely. Decompiler-only temporaries have no persistent storage and are rejected.
+This operation only names existing variables; it never creates or merges stack
+storage or changes a datatype, ABI, or parameter list.

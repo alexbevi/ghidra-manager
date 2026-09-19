@@ -69,3 +69,25 @@ def test_rejects_unsupported_or_stale_proposals(tmp_path, monkeypatch, field, va
     with pytest.raises(ManagerError):
         create(root, proposal)
     assert not (root / "artifacts" / "plans").exists()
+
+
+def test_local_requires_exact_persistent_storage(tmp_path, monkeypatch):
+    root, snapshot, proposal = planning_fixture(tmp_path, monkeypatch)
+    snapshot["functions"][0]["variables"] = [
+        {"name": "local_4", "storage": "Stack[-4]:4", "type": "/int", "parameter": False}
+    ]
+    scan(root, Client(8089, "/fixture.exe"))
+    proposal["changes"] = [
+        {
+            "kind": "local",
+            "address": "00401000",
+            "old_name": "local_4",
+            "new_name": "count",
+            "storage": "Stack[-4]:4",
+            "evidence_ids": ["ev-test"],
+        }
+    ]
+    assert create(root, proposal)["changes"] == 1
+    proposal["changes"][0]["storage"] = "Stack[-8]:4"
+    with pytest.raises(ManagerError, match="persistent target"):
+        create(root, proposal)
