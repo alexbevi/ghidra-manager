@@ -70,3 +70,12 @@ during collection. Raw evidence stays in the cache; the default packet is at mos
 32 KiB. Use `--max-bytes` to adjust it. Oversized functions are explicitly omitted
 and `complete` is false: narrow the request or deliberately increase the limit.
 Do not treat an incomplete packet as sufficient evidence for a mutation.
+
+## Incremental verification
+
+`ghidra-manager campaign --state ./campaign diff BEFORE.json AFTER.json` compares
+retained snapshots. Pure decoration or stored-variable naming does not request
+native decompilation. Other function changes include direct callers. Shared-type
+or configuration changes, and uncertain indirect-consumer coverage, request a
+full audit. The tool reports exactly why. Raw snapshots remain authoritative;
+this classifier never treats cosmetic similarity as proof of semantic parity.
