@@ -626,3 +626,6 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
 
 Use `ghidra-manager campaign --state DIRECTORY` for offline campaign lifecycle
 commands. See the [tool guide](tools/README.md) for examples and compatibility.
+
+The [`ghidra-verify` companion skill](skills/ghidra-verify/SKILL.md) reviews
+bounded proposals independently before campaign finalization.

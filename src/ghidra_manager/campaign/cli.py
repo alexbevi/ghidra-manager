@@ -15,6 +15,7 @@ from ghidra_manager.campaign.mutations import apply, reconcile
 from ghidra_manager.campaign.plans import create
 from ghidra_manager.campaign.selftest import run as selftest
 from ghidra_manager.campaign.transport import Client
+from ghidra_manager.campaign.verification import finalize, verify
 from ghidra_manager.errors import ManagerError
 
 
@@ -34,11 +35,13 @@ def add_parser(commands: Any) -> None:
     init.add_argument("--target", choices=["generic", "scummvm"])
     for name in ["status", "validate", "report", "self-test"]:
         actions.add_parser(name)
-    for verb in ("apply", "reconcile"):
+    for verb in ("apply", "reconcile", "verify", "finalize"):
         command = actions.add_parser(verb)
         command.add_argument("--port", type=int, default=8089)
         if verb == "apply":
             command.add_argument("plan", type=Path)
+        if verb == "finalize":
+            command.add_argument("review", type=Path)
     plan_parser = actions.add_parser("plan", help="Validate and retain a rename proposal")
     plan_parser.add_argument("proposal", type=Path)
     diff_parser = actions.add_parser("diff", help="Classify retained snapshot changes")
@@ -115,6 +118,15 @@ def run(args: argparse.Namespace) -> int:
             print(json.dumps(result, sort_keys=True))
             return 0
         project = validate_project.load_json(root / "project.json")
+        if args.campaign_command in {"verify", "finalize"}:
+            client = Client(args.port, project["ghidra"]["program_path"])
+            result = (
+                verify(root, client)
+                if args.campaign_command == "verify"
+                else finalize(root, client, read(args.review))
+            )
+            print(json.dumps(result))
+            return 0
         if args.campaign_command in {"apply", "reconcile"}:
             client = Client(args.port, project["ghidra"]["program_path"])
             result = (

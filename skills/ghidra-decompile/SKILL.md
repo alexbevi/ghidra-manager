@@ -256,6 +256,19 @@ Later waves can cover independent subsystems. Use the role and handoff
 contracts in `references/orchestration.md`. Never let two write-capable agents
 mutate the same Ghidra program concurrently.
 
+## Manager-backed batches
+
+Use `scan`, `packet`, and `diff` to collect and compare evidence locally. Read the
+bounded packet, not entire snapshot collections. Keep naming separate from types
+and analysis repair. Submit a declarative `plan`, then `apply`, `verify`, and
+`finalize` with a passing independent review. Use the `ghidra-verify` companion
+skill for that review. A tool success is not evidence that a name is correct.
+A timed-out write requires `reconcile`, never an automatic retry.
+
+Default to one analyst and one reviewer with fresh task-local context. Additional
+workers need a bounded task and available budget. Do not reload every historical
+checkpoint or every reference when only one subsystem is active.
+
 ## Phase 4: Recover one subsystem at a time
 
 For each cluster:

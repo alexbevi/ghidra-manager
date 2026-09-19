@@ -128,3 +128,20 @@ headless Ghidra process. It tests mid-batch rollback, successful readback, and
 receipt-based replay, then deletes its temporary project. The existing GUI and
 retail programs are not touched. A retained log records compilation and runtime
 failures. This requires the managed Ghidra installation and JDK 21.
+
+## Independent review and save
+
+`campaign --state DIRECTORY verify --port 8089` repeats mechanical readback and
+returns the exact `after_snapshot` to review. A different reviewer supplies:
+
+```json
+{"plan":"PLAN_ID","after_snapshot":"SNAPSHOT_ID","reviewer":"reviewer-id",
+"verdict":"pass","evidence_ids":["ev-header"],"notes":"Findings and limitations."}
+```
+
+Run `campaign --state DIRECTORY finalize REVIEW.json --port 8089` to save. It
+rejects self-review, missing evidence, failed verdicts, and changed live state.
+It confirms the program is no longer modified before marking the batch saved.
+Save errors remain distinct from application failures. Review identities record
+workflow responsibility; they are not authentication or proof of independence.
+Use the `ghidra-verify` companion skill for semantic review.
