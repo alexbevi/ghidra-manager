@@ -216,7 +216,7 @@ Supported operations are metadata only:
 
 Every operation also has `kind` and existing `evidence_ids`. The only supported
 analyzer option is `Shared Return Calls.Assume Contiguous Functions Only` in the
-program's Analysis options. Plans allow at most 100 operations and 256 targets
+program's Analyzers options. Plans allow at most 100 operations and 256 targets
 per jump table. Ghidra validates instruction extents, ownership, old values, and
 existing flow conflicts inside the transaction. Order removal before expanding
 an owner, and set a synthetic return's BRANCH override before adding its table.
@@ -234,3 +234,31 @@ jump targets, public-return preservation, and rollback after the script boundary
 
 The [analysis repair skill](../skills/ghidra-analysis-repair/SKILL.md) guides this
 workflow. Stable application and independent finalization are separate steps.
+
+## Durable repairs
+
+A repair needs two independent reviews, one of the rolled-back trial before
+application and one of the actual program state before saving. The same reviewer
+may do both, but must differ from the plan's author.
+
+The trial review JSON contains `plan`, `trial` from the trial report, `reviewer`,
+`verdict: "pass"`, nonempty `notes`, all `evidence_ids`, and every changed address
+in `reviewed_native_functions`. Run:
+
+```bash
+ghidra-manager campaign --state ./campaign apply PLAN.json --trial-review REVIEW.json --port 8089
+ghidra-manager campaign --state ./campaign verify --port 8089
+```
+
+The runner processes pending analysis inside the trial and application. Before
+committing, it compares the result with the reviewed trial and rolls back a
+mismatch. It then rechecks ownership, byte hashes, listing edges, native jump
+cases, and the complete snapshot after native capture while analysis is idle.
+An analyzer-created function or another edit prevents finalization. Use `finalize`
+with a separate review bound to the actual `after_snapshot` to save.
+
+Errors during the Ghidra transaction roll it back. A transport timeout or a
+post-commit mismatch leaves an unresolved, unsaved batch. `reconcile` reads its
+program-local receipt and rechecks the state. It never silently overwrites later
+UI edits or invokes Undo against an unknown transaction. Investigate conflicting
+edits before attempting recovery; a trial result is not proof of saved state.

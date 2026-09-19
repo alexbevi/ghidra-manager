@@ -67,3 +67,55 @@ def test_trial_timeout_blocks_new_mutations_and_never_retries(tmp_path, monkeypa
     atomic_json(directory / "trial-finished.json", {"plan": plan["id"], "finished": True})
     assert reconcile_trial(root, client)["rolled_back"] is True
     assert fingerprint(snapshot) == read(Path(plan["artifact"]))["snapshot"]
+
+
+def test_durable_repair_requires_exact_independent_trial_review(tmp_path, monkeypatch):
+    from ghidra_manager.campaign.repairs import approve_trial
+
+    root, snapshot, proposal = setup(tmp_path, monkeypatch)
+    result = create(root, proposal)
+    plan = read(Path(result["artifact"]))
+    directory = root / "artifacts" / "batches" / plan["id"]
+    directory.mkdir(parents=True)
+    atomic_json(directory / "trial-snapshot.json", snapshot)
+    report = {
+        "plan": plan["id"],
+        "rolled_back": True,
+        "candidate_snapshot": fingerprint(snapshot),
+        "native_delta": {"changed": [{"address": "00401000"}]},
+    }
+    (directory / "trial-native").mkdir()
+    atomic_json(directory / "trial-native" / "function.json", {"address": "00401000"})
+    report["native_fingerprints"] = {"function.json": fingerprint({"address": "00401000"})}
+    report["id"] = fingerprint(report)
+    atomic_json(directory / "trial.json", report)
+    review = {
+        "plan": plan["id"],
+        "trial": report["id"],
+        "reviewer": "reviewer",
+        "verdict": "pass",
+        "notes": "Checked raw p-code and every incoming edge",
+        "evidence_ids": ["ev-test"],
+        "reviewed_native_functions": ["00401000"],
+    }
+    approve_trial(root, plan, review)
+    with pytest.raises(ManagerError, match="independent"):
+        approve_trial(root, plan, {**review, "reviewer": "analyst"})
+    with pytest.raises(ManagerError, match="all evidence"):
+        approve_trial(root, plan, {**review, "reviewed_native_functions": []})
+    atomic_json(directory / "trial-snapshot.json", {**snapshot, "edited": True})
+    with pytest.raises(ManagerError, match="candidate changed"):
+        approve_trial(root, plan, review)
+
+
+def test_stability_rejects_analyzer_interference(tmp_path, monkeypatch):
+    from ghidra_manager.campaign.repairs import stable
+
+    _, snapshot, _ = setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(Client, "idle", lambda self: None)
+    client = Client(8089, "/fixture.exe")
+    stable(client, deepcopy(snapshot))
+    prior = deepcopy(snapshot)
+    snapshot["functions"].append({"address": "00401001", "name": "false_shared_tail"})
+    with pytest.raises(ManagerError, match="Analysis changed"):
+        stable(client, prior)

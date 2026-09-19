@@ -63,6 +63,8 @@ def add_parser(commands: Any) -> None:
         command.add_argument("--port", type=int, default=8089)
         if verb in {"apply", "trial"}:
             command.add_argument("plan", type=Path)
+        if verb == "apply":
+            command.add_argument("--trial-review", type=Path)
         if verb == "finalize":
             command.add_argument("review", type=Path)
     plan_parser = actions.add_parser("plan", help="Validate and retain a rename proposal")
@@ -185,7 +187,9 @@ def run(args: argparse.Namespace) -> int:
         if args.campaign_command in {"apply", "reconcile"}:
             client = Client(args.port, project["ghidra"]["program_path"])
             result = (
-                apply(root, client, args.plan)
+                apply(
+                    root, client, args.plan, read(args.trial_review) if args.trial_review else None
+                )
                 if args.campaign_command == "apply"
                 else reconcile(root, client)
             )

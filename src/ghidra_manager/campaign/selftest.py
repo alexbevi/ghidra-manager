@@ -76,6 +76,14 @@ def run(root: Path) -> dict[str, Any]:
                 "-postScript",
                 "CampaignFixture.java",
                 temporary,
+                "repair-apply",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "repair-stable",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
                 "abi",
                 "-deleteProject",
             ],
@@ -92,8 +100,18 @@ def run(root: Path) -> dict[str, Any]:
             "CAMPAIGN_ABI_PASS",
             "CAMPAIGN_REPAIR_TRIAL_PASS",
             "CAMPAIGN_REPAIR_CAPTURE_PASS",
+            "CAMPAIGN_REPAIR_APPLIED",
+            "CAMPAIGN_REPAIR_STABLE_PASS",
         ]
     )
     if not passed:
         raise ManagerError(f"Campaign fixture failed; inspect {log}")
+    from ghidra_manager.campaign.inventory import read
+    from ghidra_manager.campaign.repairs import readback
+
+    readback(
+        read(directory / "repair-args.json")["plan"],
+        read(directory / "before-repair.json"),
+        read(directory / "trial-snapshot.json"),
+    )
     return {"passed": True, "log": str(log), "retail_program_modified": False}

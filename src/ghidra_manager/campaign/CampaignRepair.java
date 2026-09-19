@@ -29,7 +29,7 @@ public class CampaignRepair extends GhidraScript {
     void change(JsonObject c) throws Exception {
         String kind = c.get("kind").getAsString();
         if (kind.equals("analyzer_option")) {
-            var options = currentProgram.getOptions("Analysis");
+            var options = currentProgram.getOptions(Program.ANALYSIS_PROPERTIES);
             String key = c.get("address").getAsString();
             if (!key.equals("Shared Return Calls.Assume Contiguous Functions Only") ||
                 !options.contains(key) || options.getBoolean(key, false) != c.get("old_value").getAsBoolean())
@@ -104,22 +104,28 @@ public class CampaignRepair extends GhidraScript {
         var plan = config.getAsJsonObject("plan");
         String id = plan.get("id").getAsString();
         var directory = Path.of(config.get("directory").getAsString());
-        if (!config.get("mode").getAsString().equals("trial")) throw new Exception("Only rollback trials are supported");
+        String mode = config.get("mode").getAsString();
+        if (!mode.equals("trial") && !mode.equals("apply")) throw new Exception("Unknown repair mode");
+        boolean durable = mode.equals("apply");
+        var journal = currentProgram.getOptions("GhidraManagerCampaign");
+        if (!journal.getString(id, "").isEmpty()) throw new Exception("Reconcile existing repair receipt");
         if (!currentProgram.getExecutableSHA256().equals(plan.getAsJsonObject("identity").get("digest").getAsString()))
             throw new Exception("Executable digest mismatch");
         int tx = currentProgram.startTransaction("Ghidra Manager repair trial " + id);
         boolean succeeded = false;
+        boolean commit = false;
         try {
             for (var item : plan.getAsJsonArray("changes")) { monitor.checkCancelled(); change(item.getAsJsonObject()); }
+            analyzeChanges(currentProgram);
             var args = new JsonObject();
-            args.addProperty("output", directory.resolve("trial-snapshot.json").toString());
+            args.addProperty("output", directory.resolve(durable ? "applied-snapshot.json" : "trial-snapshot.json").toString());
             invoke("CampaignInventory.java", args);
             var addresses = new JsonArray();
             var functions = new ArrayList<Function>();
             var iterator = currentProgram.getFunctionManager().getFunctions(true);
             while (iterator.hasNext()) { var f = iterator.next(); if (!f.isThunk()) functions.add(f); }
             int index = 0;
-            var nativeDir = directory.resolve("after-native"); Files.createDirectories(nativeDir);
+            var nativeDir = directory.resolve(durable ? "applied-native" : "trial-native"); Files.createDirectories(nativeDir);
             try(var previous = Files.newDirectoryStream(nativeDir, "*.json")) { for (var file : previous) Files.delete(file); }
             for (var f : functions) {
                 index++;
@@ -131,18 +137,29 @@ public class CampaignRepair extends GhidraScript {
                     var nativeResult = JsonParser.parseString(Files.readString(directory.resolve("trial-native.json"))).getAsJsonObject();
                     for (var row : nativeResult.getAsJsonArray("functions")) {
                         String address = row.getAsJsonObject().get("address").getAsString();
+                        if (durable) {
+                            var expectedNative = JsonParser.parseString(Files.readString(directory.resolve("trial-native").resolve(address.replace(':', '_') + ".json")));
+                            if (!expectedNative.equals(row)) throw new Exception("Native output differs from reviewed trial; rolling back");
+                        }
                         Files.writeString(nativeDir.resolve(address.replace(':', '_') + ".json"), row.toString());
                     }
                     addresses = new JsonArray();
                 }
             }
+            if (durable) {
+                var expected = JsonParser.parseString(Files.readString(directory.resolve("trial-snapshot.json")));
+                var observed = JsonParser.parseString(Files.readString(directory.resolve("applied-snapshot.json")));
+                if (!expected.equals(observed)) throw new Exception("Repair differs from reviewed trial; rolling back");
+                journal.setString(id, "applied");
+                commit = true;
+            }
             succeeded = true;
         } finally {
-            currentProgram.endTransaction(tx, false);
+            currentProgram.endTransaction(tx, commit);
             var receipt = new JsonObject(); receipt.addProperty("plan", id); receipt.addProperty("finished", true);
-            Files.writeString(directory.resolve("trial-finished.json"), receipt.toString());
+            Files.writeString(directory.resolve(durable ? "apply-finished.json" : "trial-finished.json"), receipt.toString());
         }
-        var result = new JsonObject(); result.addProperty("complete", true); result.addProperty("rolled_back", succeeded);
+        var result = new JsonObject(); result.addProperty("complete", true); result.addProperty("rolled_back", succeeded && !durable); result.addProperty("committed", commit); result.addProperty("transaction", id);
         Files.writeString(Path.of(config.get("output").getAsString()), result.toString());
         println("CAMPAIGN_RESULT:complete");
     }

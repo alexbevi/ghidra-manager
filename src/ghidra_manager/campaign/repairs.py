@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from shutil import copy2
 from typing import Any
 
 from ghidra_manager.campaign import native
@@ -134,8 +135,17 @@ def trial(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
         candidate = read(directory / "trial-snapshot.json")
         normalize(candidate)
         readback(plan, before, candidate)
+        after_native = directory / "after-native"
+        after_native.mkdir(exist_ok=True)
+        for previous in after_native.glob("*.json"):
+            previous.unlink()
+        native_fingerprints = {}
+        for artifact in (directory / "trial-native").glob("*.json"):
+            copy2(artifact, after_native / artifact.name)
+            native_fingerprints[artifact.name] = fingerprint(read(artifact))
         native_tables(root, plan)
         report = {
+            "native_fingerprints": native_fingerprints,
             "plan": plan["id"],
             "rolled_back": True,
             "candidate_snapshot": fingerprint(candidate),
@@ -204,7 +214,7 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
     expected_options = json.loads(json.dumps(before["configuration"]))
     for change in plan["changes"]:
         if change["kind"] == "analyzer_option":
-            expected_options["Analysis"][change["address"]] = str(change["value"]).lower()
+            expected_options["Analyzers"][change["address"]] = str(change["value"]).lower()
     if expected_options != after["configuration"]:
         raise ManagerError("Unplanned analyzer settings changed")
 
@@ -219,3 +229,54 @@ def native_tables(root: Path, plan: dict[str, Any]) -> None:
         matching = [t for t in tables if t["address"] == change["address"]]
         if len(matching) != 1 or set(matching[0]["targets"]) != set(change["targets"]):
             raise ManagerError("Native jump-table targets differ from proposal")
+
+
+def approve_trial(root: Path, plan: dict[str, Any], review: dict[str, Any] | None) -> None:
+    directory = root / "artifacts" / "batches" / plan["id"]
+    report = read(directory / "trial.json")
+    if report.get("id") != fingerprint({k: v for k, v in report.items() if k != "id"}):
+        raise ManagerError("Trial report changed")
+    candidate = read(directory / "trial-snapshot.json")
+    from ghidra_manager.campaign.mutations import normalize
+
+    normalize(candidate)
+    if fingerprint(candidate) != report["candidate_snapshot"]:
+        raise ManagerError("Trial candidate changed")
+    for name, digest in report.get("native_fingerprints", {}).items():
+        if (
+            Path(name).name != name
+            or fingerprint(read(directory / "trial-native" / name)) != digest
+        ):
+            raise ManagerError("Trial native evidence changed")
+    if not report.get("native_fingerprints"):
+        raise ManagerError("Trial has no retained native evidence")
+    if (
+        report.get("plan") != plan["id"]
+        or not review
+        or review.get("plan") != plan["id"]
+        or review.get("trial") != report["id"]
+        or report.get("rolled_back") is not True
+        or review.get("verdict") != "pass"
+        or not review.get("notes")
+        or not isinstance(review.get("reviewer"), str)
+        or not review["reviewer"].strip()
+        or review["reviewer"].strip().casefold() == plan["author"].strip().casefold()
+    ):
+        raise ManagerError("Require independent passing review of the exact rolled-back trial")
+    evidence = {e for c in plan["changes"] for e in c["evidence_ids"]}
+    changed = {c["address"] for c in report["native_delta"]["changed"]}
+    if not evidence <= set(review.get("evidence_ids", [])) or not changed <= set(
+        review.get("reviewed_native_functions", [])
+    ):
+        raise ManagerError("Trial review must cover all evidence and changed native functions")
+    atomic_json(directory / "trial-review.json", review)
+
+
+def stable(client: Client, expected: dict[str, Any]) -> None:
+    from ghidra_manager.campaign.mutations import normalize
+
+    client.idle()
+    live = client.script("CampaignInventory", {})
+    normalize(live)
+    if fingerprint(live) != fingerprint(expected):
+        raise ManagerError("Analysis changed the repair after native capture; do not save")

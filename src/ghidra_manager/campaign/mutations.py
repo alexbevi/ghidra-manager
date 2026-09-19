@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ghidra_manager.campaign import layouts, native
+from ghidra_manager.campaign import layouts, native, repairs
 from ghidra_manager.campaign.budget import locked, require_admission, timestamp
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.inventory import check_identity, fingerprint, latest, read
@@ -16,8 +16,10 @@ from ghidra_manager.storage import atomic_json
 
 
 def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-    if plan["queue"] == "types":
-        layouts.readback(plan, before, after)
+    if before.get("memory") != after.get("memory"):
+        raise ManagerError("Mutation changed program memory")
+    if plan["queue"] in {"types", "repair"}:
+        (layouts if plan["queue"] == "types" else repairs).readback(plan, before, after)
         return {
             "complete": True,
             "plan": plan["id"],
@@ -45,15 +47,19 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
     }
 
 
-def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
+def apply(
+    root: Path, client: Client, plan_path: Path, trial_review: dict[str, Any] | None = None
+) -> dict[str, Any]:
     require_admission(root)
     plan = load_plan(plan_path)
-    if plan["queue"] not in {"naming", "types"}:
-        raise ManagerError("This runner supports only naming plans")
+    if plan["queue"] not in {"naming", "types", "repair"}:
+        raise ManagerError("Unsupported mutation queue")
     with locked(root):
         from ghidra_manager.campaign.repairs import require_clear
 
         require_clear(root)
+        if plan["queue"] == "repair":
+            repairs.approve_trial(root, plan, trial_review)
         progress = read(root / "progress.json")
         if progress.get("active_mutation_lease"):
             raise ManagerError("An existing campaign mutation lease requires reconciliation")
@@ -73,7 +79,7 @@ def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
                 and fingerprint(target(before, change)) != change["expected"]
             ):
                 raise ManagerError("Stale target fingerprint")
-        if plan["queue"] == "types":
+        if plan["queue"] != "naming":
             native.capture(root, client, plan["id"], "before-native", before)
         batch = {
             "schema_version": 1,
@@ -85,17 +91,27 @@ def apply(root: Path, client: Client, plan_path: Path) -> dict[str, Any]:
         atomic_json(batch_path, batch)
         # An exception leaves in-flight state; never automatically retry an uncertain write.
         response = client.script(
-            "CampaignRename" if plan["queue"] == "naming" else "CampaignTypes",
-            {"plan": plan, "before": before},
+            {"naming": "CampaignRename", "types": "CampaignTypes", "repair": "CampaignRepair"}[
+                plan["queue"]
+            ],
+            {
+                "plan": plan,
+                "before": before,
+                "mode": "apply",
+                "directory": str((root / "artifacts" / "batches" / plan["id"]).resolve()),
+            },
         )
         if response.get("transaction") != plan["id"] or response.get("committed") is not True:
             raise ManagerError("Mutation outcome ambiguous; run reconcile")
         after = client.script("CampaignInventory", {})
         normalize(after)
         verification = readback(plan, before, after)
-        if plan["queue"] == "types":
+        if plan["queue"] != "naming":
             native.capture(root, client, plan["id"], "after-native", after)
             verification["native_delta"] = native.delta(root, plan["id"])
+            if plan["queue"] == "repair":
+                repairs.native_tables(root, plan)
+                repairs.stable(client, after)
         directory = root / "artifacts" / "batches" / plan["id"]
         directory.mkdir(parents=True, exist_ok=True)
         atomic_json(directory / "after.json", after)
@@ -131,9 +147,12 @@ def reconcile(root: Path, client: Client) -> dict[str, Any]:
         if journal.get(plan["id"]) == "applied":
             before = read(root / "artifacts" / "snapshots" / (plan["snapshot"] + ".json"))
             verification = readback(plan, before, live)
-            if plan["queue"] == "types":
+            if plan["queue"] != "naming":
                 native.capture(root, client, plan["id"], "after-native", live)
                 verification["native_delta"] = native.delta(root, plan["id"])
+                if plan["queue"] == "repair":
+                    repairs.native_tables(root, plan)
+                    repairs.stable(client, live)
             directory = root / "artifacts" / "batches" / plan["id"]
             directory.mkdir(parents=True, exist_ok=True)
             atomic_json(directory / "after.json", live)
