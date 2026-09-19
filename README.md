@@ -621,3 +621,8 @@ idempotent resync, status check, and bridge smoke test on the same matrix.
   operations.
 - **No project registry:** launch Ghidra once so it creates platform settings
   and records a project.
+
+## Campaign tools
+
+Use `ghidra-manager campaign --state DIRECTORY` for offline campaign lifecycle
+commands. See the [tool guide](tools/README.md) for examples and compatibility.

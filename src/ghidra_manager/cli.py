@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ghidra_manager import __version__
+from ghidra_manager.campaign.cli import add_parser as add_campaign_parser
+from ghidra_manager.campaign.cli import run as run_campaign
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.instance_state import InstanceReport
 from ghidra_manager.manager import Manager
@@ -164,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("target", nargs="?")
     logs.add_argument("--lines", type=_nonnegative_int, default=200)
     logs.add_argument("--follow", action="store_true")
+    add_campaign_parser(commands)
     return parser
 
 
@@ -222,6 +225,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         args.arguments = values[1:]
     else:
         args = build_parser().parse_args(values)
+    if args.command == "campaign":
+        return run_campaign(args)
     if args.command == "sync":
         for line in Manager.discover().sync(dry_run=args.dry_run):
             print(line)

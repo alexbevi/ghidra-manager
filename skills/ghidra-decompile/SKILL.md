@@ -74,6 +74,10 @@ Inside this repository, use the ignored `.ghidra-decompile/<program-slug>/`
 directory. Never place campaign state, transformed binaries, traces, or other
 program-specific artifacts under `skills/ghidra-decompile/`.
 
+Prefer the packaged `ghidra-manager campaign --state DIRECTORY init` command.
+Use its `status`, `validate`, and `report` commands for offline campaign state.
+The script entrypoints below remain compatible.
+
 Initialize it once:
 
 ```bash
