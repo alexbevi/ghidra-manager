@@ -108,3 +108,23 @@ Stored variables use `kind: parameter` or `kind: local`, the owning function's
 uniquely. Decompiler-only temporaries have no persistent storage and are rejected.
 This operation only names existing variables; it never creates or merges stack
 storage or changes a datatype, ABI, or parameter list.
+
+## Applying and reconciling naming batches
+
+`campaign --state DIRECTORY apply PLAN.json --port 8089` rechecks identity,
+snapshot and target fingerprints, then applies the entire batch in one Ghidra
+transaction. Names are read back inside that transaction. A program-local receipt
+and a campaign batch record identify the operation. The program remains unsaved
+and the batch requires independent review. Existing mutation leases block apply.
+
+After any uncertain response, use `campaign --state DIRECTORY reconcile --port
+8089`. This only reads live state and the transaction receipt. A missing receipt
+is unresolved, because a timed-out request may still be queued; it does not
+trigger another write. Keep the project open and reconcile before further changes.
+
+`campaign --state DIRECTORY self-test` runs the packaged inventory, decompiler,
+and rename scripts against a temporary two-function raw binary in a separate
+headless Ghidra process. It tests mid-batch rollback, successful readback, and
+receipt-based replay, then deletes its temporary project. The existing GUI and
+retail programs are not touched. A retained log records compilation and runtime
+failures. This requires the managed Ghidra installation and JDK 21.

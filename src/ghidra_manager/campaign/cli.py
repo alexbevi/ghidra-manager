@@ -11,7 +11,9 @@ from ghidra_manager.campaign import budget, init_project, report_project, valida
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.evidence import packet
 from ghidra_manager.campaign.inventory import read, scan
+from ghidra_manager.campaign.mutations import apply, reconcile
 from ghidra_manager.campaign.plans import create
+from ghidra_manager.campaign.selftest import run as selftest
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
 
@@ -30,8 +32,13 @@ def add_parser(commands: Any) -> None:
         "--profile", choices=["symbol-recovery", "reimplementation"], default="symbol-recovery"
     )
     init.add_argument("--target", choices=["generic", "scummvm"])
-    for name in ["status", "validate", "report"]:
+    for name in ["status", "validate", "report", "self-test"]:
         actions.add_parser(name)
+    for verb in ("apply", "reconcile"):
+        command = actions.add_parser(verb)
+        command.add_argument("--port", type=int, default=8089)
+        if verb == "apply":
+            command.add_argument("plan", type=Path)
     plan_parser = actions.add_parser("plan", help="Validate and retain a rename proposal")
     plan_parser.add_argument("proposal", type=Path)
     diff_parser = actions.add_parser("diff", help="Classify retained snapshot changes")
@@ -90,6 +97,9 @@ def run(args: argparse.Namespace) -> int:
         errors = validate_project.validate(root)
         if errors:
             raise ManagerError("Invalid campaign: " + "; ".join(errors))
+        if args.campaign_command == "self-test":
+            print(json.dumps(selftest(root)))
+            return 0
         if args.campaign_command == "plan":
             print(json.dumps(create(root, read(args.proposal))))
             return 0
@@ -105,6 +115,15 @@ def run(args: argparse.Namespace) -> int:
             print(json.dumps(result, sort_keys=True))
             return 0
         project = validate_project.load_json(root / "project.json")
+        if args.campaign_command in {"apply", "reconcile"}:
+            client = Client(args.port, project["ghidra"]["program_path"])
+            result = (
+                apply(root, client, args.plan)
+                if args.campaign_command == "apply"
+                else reconcile(root, client)
+            )
+            print(json.dumps(result))
+            return 0
         if args.campaign_command == "packet":
             print(
                 json.dumps(

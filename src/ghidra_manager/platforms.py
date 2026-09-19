@@ -94,9 +94,7 @@ def find_java21(
     for candidate in candidates:
         if _java_major(candidate) == 21:
             return candidate
-    raise ManagerError(
-        "JDK 21 not found. Set JAVA_HOME or place a Java 21 executable on PATH."
-    )
+    raise ManagerError("JDK 21 not found. Set JAVA_HOME or place a Java 21 executable on PATH.")
 
 
 def run_ghidra(
@@ -125,6 +123,45 @@ def run_ghidra(
         return subprocess.run(command, check=False, env=environment).returncode
     except OSError as exc:
         raise ManagerError(f"Failed to launch Ghidra: {exc}") from exc
+
+
+def run_headless_fixture(
+    install: Path,
+    arguments: list[str],
+    java_home: Path,
+    log: Path,
+    *,
+    platform: str | None = None,
+) -> int:
+    """Run a bounded fixture process; never attach to an existing project."""
+    platform = platform or sys.platform
+    environment = os.environ.copy()
+    environment["JAVA_HOME"] = str(java_home)
+    environment["PATH"] = str(java_home / "bin") + os.pathsep + environment.get("PATH", "")
+    launcher = (
+        install / "support" / ("analyzeHeadless.bat" if platform == "win32" else "analyzeHeadless")
+    )
+    command = [str(launcher), *arguments]
+    if platform == "win32":
+        command = [
+            environment.get("COMSPEC", "cmd.exe"),
+            "/d",
+            "/s",
+            "/c",
+            subprocess.list2cmdline(command),
+        ]
+    try:
+        with log.open("w", encoding="utf-8") as output:
+            return subprocess.run(
+                command,
+                env=environment,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                check=False,
+            ).returncode
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ManagerError(f"Headless fixture failed; see {log}: {exc}") from exc
 
 
 def start_ghidra_instance(
