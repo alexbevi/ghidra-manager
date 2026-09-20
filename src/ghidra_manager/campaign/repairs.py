@@ -31,12 +31,16 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
             if line.strip()
         }
         functions = {f["address"]: f for f in snapshot["functions"]}
+        kinds = {c.get("kind") for c in proposal["changes"]}
+        if "create_function" in kinds and kinds != {"create_function"}:
+            raise ManagerError("Function creation requires a separate repair batch")
         keys = set()
         for change in proposal["changes"]:
             kind = change.get("kind")
             common = {"kind", "address", "evidence_ids"}
             fields = {
                 "body": {"ranges", "old_body"},
+                "create_function": {"ranges", "instruction_hash"},
                 "remove_function": {"old_body", "old_name"},
                 "flow_override": {"bytes", "old_override", "override"},
                 "jump_table": {"bytes", "function", "targets"},
@@ -50,6 +54,8 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
             if key in keys:
                 raise ManagerError("Duplicate repair target")
             keys.add(key)
+            if kind == "create_function":
+                validate_creation(change, functions)
             if kind in {"body", "remove_function"}:
                 f = functions.get(change["address"], {})
                 if not f or f.get("body") != change["old_body"]:
@@ -91,6 +97,42 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_json(path, {"id": plan_id, **plan})
         return {"id": plan_id, "artifact": str(path), "changes": len(plan["changes"])}
+
+
+def validate_creation(change: dict[str, Any], functions: dict[str, Any]) -> None:
+    """Validate canonical flat-address ranges; live checks prove instruction ownership."""
+    address = change["address"]
+    ranges = change["ranges"]
+    if address in functions:
+        raise ManagerError("Created function already exists")
+    if not isinstance(address, str) or not re.fullmatch(r"[0-9a-f]{8,16}", address):
+        raise ManagerError("Creation requires a canonical flat hexadecimal address")
+    if not isinstance(change["instruction_hash"], str) or not re.fullmatch(
+        r"[0-9a-f]{64}", change["instruction_hash"]
+    ):
+        raise ManagerError("Creation requires an exact instruction hash")
+    if not isinstance(ranges, list) or not 1 <= len(ranges) <= 256:
+        raise ManagerError("Creation requires 1 to 256 inclusive ranges")
+    previous = -2
+    contains_entry = False
+    for pair in ranges:
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[0-9a-f]{" + str(len(address)) + r"}", value)
+                for value in pair
+            )
+        ):
+            raise ManagerError("Creation ranges require canonical address pairs")
+        start, end = (int(value, 16) for value in pair)
+        if start > end or start <= previous + 1:
+            raise ManagerError("Creation ranges must be sorted, disjoint and nonadjacent")
+        contains_entry |= start <= int(address, 16) <= end
+        previous = end
+    if not contains_entry:
+        raise ManagerError("Creation body excludes entrypoint")
 
 
 def require_clear(root: Path) -> None:
@@ -187,14 +229,37 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
     if before["types"] != after["types"] or before["data"] != after["data"]:
         raise ManagerError("Repair altered types or data")
     removed = {c["address"] for c in plan["changes"] if c["kind"] == "remove_function"}
+    created = {c["address"]: c for c in plan["changes"] if c["kind"] == "create_function"}
     old = {f["address"]: f for f in before["functions"]}
     new = {f["address"]: f for f in after["functions"]}
-    if new.keys() != old.keys() - removed:
+    if new.keys() != (old.keys() - removed) | created.keys():
         raise ManagerError("Unexpected function creation or removal")
     bodies = {c["address"]: c["ranges"] for c in plan["changes"] if c["kind"] == "body"}
     flows = {c["address"]: c["override"] for c in plan["changes"] if c["kind"] == "flow_override"}
     tables = {c["address"]: c["targets"] for c in plan["changes"] if c["kind"] == "jump_table"}
     for address, function in new.items():
+        if address in created:
+            change = created[address]
+            if (
+                function.get("body_ranges") != change["ranges"]
+                or function.get("byte_hash") != change["instruction_hash"]
+                or function.get("source") != "DEFAULT"
+                or not function.get("name", "").startswith("FUN_")
+                or function.get("thunk") is not False
+                or function.get("external") is not False
+            ):
+                raise ManagerError(
+                    "Created function differs from reviewed extent or default identity"
+                )
+            continue
+        if created:
+            for key in old[address].keys() | function.keys():
+                if key != "callees" and old[address].get(key) != function.get(key):
+                    raise ManagerError("Creation changed existing function metadata")
+            old_callees = set(old[address].get("callees", []))
+            new_callees = set(function.get("callees", []))
+            if not old_callees <= new_callees or not new_callees - old_callees <= created.keys():
+                raise ManagerError("Creation changed unrelated callees")
         for key in ["name", "abi", "variables", "namespace", "thunk"]:
             if old[address].get(key) != function.get(key):
                 raise ManagerError("Repair changed names or ABI")

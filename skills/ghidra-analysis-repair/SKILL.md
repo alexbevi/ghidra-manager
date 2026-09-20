@@ -19,6 +19,11 @@ when overriding a synthetic RET as BRANCH. Keep public returns unchanged.
 
 Use `plan` then `trial` for declarative repair proposals. The runner performs no
 byte patches. Inspect both listing references and native jump-table output.
+For reachable decoded code missing from the function inventory, use a separate
+`create_function` batch with explicit unowned ranges and instruction hashes. Prove
+entry roots and complete extents, including shared-tail consumers, before proposing
+ownership. Existing-function capture coverage excludes these gaps. Keep default
+names during discovery; review inferred metadata before later naming or ABI work.
 Compare native output for every function whose output changed, including callers
 outside the immediate region. Reconcile timeouts; never blindly retry a mutation.
 A trial is usable only after the manager proves rollback with a fresh inventory.

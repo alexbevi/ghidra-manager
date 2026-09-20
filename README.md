@@ -647,6 +647,9 @@ and the preceding naming-plan examples.
 Campaign repair proposals support rollback-only trials and reviewed application with byte, ownership,
 p-code, and native jump-table evidence. See [repair trials](tools/README.md#repair-trials)
 and the [analysis repair skill](skills/ghidra-analysis-repair/SKILL.md).
+Function discovery repairs can create default functions over explicitly reviewed,
+already-decoded unowned instructions. Exact extent/hash checks and rollback trials
+keep this separate from naming, ABI changes, and flow repairs.
 
 Use `campaign --state DIRECTORY metrics` to see reported token usage alongside
 cache reuse, native captures, saved changes, and deferred work. `benchmark` runs

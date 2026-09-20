@@ -18,6 +18,7 @@ public class CampaignFixture extends GhidraScript {
  public void run()throws Exception{
   var root=Path.of(getScriptArgs()[0]);String phase=getScriptArgs()[1];
   if(phase.equals("prepare")){
+   disassemble(toAddr(0x1005)); // Decoded orphan for the later creation fixture.
    int tx=currentProgram.startTransaction("Fixture initialization");try{for(int n=0;n<4;n++){var a=toAddr(0x1000+(n==0?0:n+1));disassemble(a);currentProgram.getFunctionManager().createFunction(n==0?"first":n==1?"second":n==2?"third":"public_return",a,new AddressSet(a,n==0?a.add(1):a),SourceType.USER_DEFINED);}}finally{currentProgram.endTransaction(tx,true);}
    analyzeChanges(currentProgram);var args=new JsonObject();args.addProperty("output",root.resolve("inventory.json").toString());invoke("CampaignInventory.java",args);var before=JsonParser.parseString(Files.readString(root.resolve("inventory.json"))).getAsJsonObject();
    var plan=new JsonObject();plan.addProperty("id","fixture-transaction");plan.add("identity",before.get("identity"));var changes=new JsonArray();

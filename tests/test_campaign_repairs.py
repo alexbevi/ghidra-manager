@@ -119,3 +119,105 @@ def test_stability_rejects_analyzer_interference(tmp_path, monkeypatch):
     snapshot["functions"].append({"address": "00401001", "name": "false_shared_tail"})
     with pytest.raises(ManagerError, match="Analysis changed"):
         stable(client, prior)
+
+
+def creation_change():
+    return {
+        "kind": "create_function",
+        "address": "00402000",
+        "ranges": [["00402000", "00402002"]],
+        "instruction_hash": "a" * 64,
+        "evidence_ids": ["ev-test"],
+    }
+
+
+def test_creation_plan_is_evidence_bound_and_separate(tmp_path, monkeypatch):
+    root, _, proposal = setup(tmp_path, monkeypatch)
+    flow = proposal["changes"][0]
+    proposal["changes"] = [creation_change()]
+    assert create(root, proposal)["changes"] == 1
+    proposal["changes"].append(flow)
+    with pytest.raises(ManagerError, match="separate repair batch"):
+        create(root, proposal)
+
+
+@pytest.mark.parametrize(
+    "patch, message",
+    [
+        ({"address": "00401000"}, "already exists"),
+        ({"instruction_hash": "aa"}, "instruction hash"),
+        ({"address": "ram:00402000"}, "flat hexadecimal"),
+        ({"ranges": []}, "inclusive ranges"),
+        ({"ranges": [["00402000"]]}, "address pairs"),
+        ({"ranges": [["00402001", "00402000"]]}, "sorted"),
+        ({"ranges": [["00402000", "00402002"], ["00402003", "00402005"]]}, "nonadjacent"),
+        ({"ranges": [["00402000", "00402002"], ["00402001", "00402005"]]}, "disjoint"),
+        ({"ranges": [["00402001", "00402002"]]}, "excludes entrypoint"),
+        ({"new_name": "handler"}, "Unsupported repair"),
+        ({"evidence_ids": ["missing"]}, "existing evidence"),
+    ],
+)
+def test_creation_rejects_unsafe_proposals(tmp_path, monkeypatch, patch, message):
+    root, _, proposal = setup(tmp_path, monkeypatch)
+    proposal["changes"] = [{**creation_change(), **patch}]
+    with pytest.raises(ManagerError, match=message):
+        create(root, proposal)
+
+
+def test_creation_readback_preserves_existing_functions_and_exact_extent():
+    from ghidra_manager.campaign.repairs import readback
+
+    change = creation_change()
+    before = {
+        "memory": [{"hash": "same"}],
+        "types": [],
+        "data": [],
+        "configuration": {},
+        "functions": [{"address": "00401000", "name": "existing", "flows": []}],
+    }
+    after = deepcopy(before)
+    after["functions"].append(
+        {
+            "address": change["address"],
+            "name": "FUN_00402000",
+            "source": "DEFAULT",
+            "thunk": False,
+            "external": False,
+            "body_ranges": change["ranges"],
+            "byte_hash": change["instruction_hash"],
+            "flows": [],
+        }
+    )
+    plan = {"changes": [change]}
+    readback(plan, before, after)
+    for patch in (
+        {"byte_hash": "b" * 64},
+        {"body_ranges": []},
+        {"name": "guessed_handler"},
+        {"source": "USER_DEFINED"},
+        {"thunk": True},
+        {"external": True},
+    ):
+        bad = deepcopy(after)
+        bad["functions"][-1].update(patch)
+        with pytest.raises(ManagerError, match="Created function differs"):
+            readback(plan, before, bad)
+    bad = deepcopy(after)
+    bad["functions"][0]["abi"] = {"convention": "changed"}
+    with pytest.raises(ManagerError, match="existing function metadata"):
+        readback(plan, before, bad)
+    for key, value in (("flows", [{"override": "CALL_RETURN"}]), ("code_hash", "changed")):
+        bad = deepcopy(after)
+        bad["functions"][0][key] = value
+        with pytest.raises(ManagerError, match="existing function metadata"):
+            readback(plan, before, bad)
+    bad = deepcopy(after)
+    bad["functions"][0]["callees"] = [change["address"]]
+    readback(plan, before, bad)
+    bad["functions"][0]["callees"].append("00403000")
+    with pytest.raises(ManagerError, match="unrelated callees"):
+        readback(plan, before, bad)
+    bad = deepcopy(after)
+    bad["functions"].append({"address": "00403000"})
+    with pytest.raises(ManagerError, match="Unexpected function"):
+        readback(plan, before, bad)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib.resources import files
 from pathlib import Path
-from shutil import copy2
+from shutil import copy2, copytree
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -26,7 +26,7 @@ def run(root: Path) -> dict[str, Any]:
     log = directory / "headless.log"
     with TemporaryDirectory(prefix="ghidra-manager-fixture-") as temporary:
         fixture = Path(temporary) / "fixture.bin"
-        fixture.write_bytes(b"\x50\xc3\xc3\xc3\xc3")
+        fixture.write_bytes(b"\x50\xc3\xc3\xc3\xc3\x31\xc0\xc3\x00")
         code = run_headless_fixture(
             paths.ghidra / pair.ghidra_version,
             [
@@ -105,6 +105,11 @@ def run(root: Path) -> dict[str, Any]:
                 "CampaignFixture.java",
                 temporary,
                 "abi",
+                *[
+                    item
+                    for phase in ("prepare", "failure", "trial", "apply", "verify")
+                    for item in ("-postScript", "CampaignCreationFixture.java", temporary, phase)
+                ],
                 "-deleteProject",
             ],
             find_java21(),
@@ -112,6 +117,8 @@ def run(root: Path) -> dict[str, Any]:
         )
         for artifact in Path(temporary).glob("*.json"):
             copy2(artifact, directory / artifact.name)
+        if (Path(temporary) / "creation").exists():
+            copytree(Path(temporary) / "creation", directory / "creation", dirs_exist_ok=True)
     passed = code == 0 and all(
         marker in log.read_text(errors="replace")
         for marker in [
@@ -126,6 +133,7 @@ def run(root: Path) -> dict[str, Any]:
             "CAMPAIGN_REPAIR_ASYNC_PASS",
             "CAMPAIGN_REPAIR_APPLIED",
             "CAMPAIGN_REPAIR_STABLE_PASS",
+            "CAMPAIGN_CREATION_PASS",
         ]
     )
     if not passed:
@@ -138,6 +146,12 @@ def run(root: Path) -> dict[str, Any]:
         read(directory / "before-repair.json"),
         read(directory / "trial-snapshot.json"),
     )
+    for capture in ("trial-snapshot.json", "after.json"):
+        readback(
+            read(directory / "creation" / "args.json")["plan"],
+            read(directory / "creation" / "before.json"),
+            read(directory / "creation" / capture),
+        )
     from ghidra_manager.campaign.mutations import readback as naming_readback
 
     naming_readback(

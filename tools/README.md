@@ -235,6 +235,7 @@ Supported operations are metadata only:
 | Kind | Additional fields |
 | --- | --- |
 | `body` | `address`, `old_body`, `ranges` of inclusive address pairs |
+| `create_function` | unowned entry `address`, inclusive `ranges`, exact `instruction_hash` |
 | `remove_function` | `address`, `old_body`, `old_name` |
 | `flow_override` | `address`, exact lowercase hex `bytes`, `old_override`, `override` as `NONE` or `BRANCH` |
 | `jump_table` | instruction `address`, exact `bytes`, owning `function`, ordered `targets` |
@@ -248,6 +249,21 @@ existing flow conflicts inside the transaction. Order removal before expanding
 an owner, and set a synthetic return's BRANCH override before adding its table.
 No executable bytes are patched.
 
+Function creation uses a separate repair batch containing only `create_function`
+operations. It accepts already-decoded, unowned instructions and creates default
+`FUN_` names. It does not disassemble bytes or assign names, types, or ABI contracts.
+Use canonical lowercase flat hexadecimal addresses (8–16 digits, equal width),
+with 1–256 sorted, disjoint, nonadjacent ranges per function. Include the entrypoint
+and every byte of each instruction. Existing function ownership and nondefault
+entry labels cause rejection. The SHA-256 `instruction_hash` uses the inventory
+`byte_hash` encoding: in ascending address order, append each instruction's canonical
+address as UTF-8 followed by its raw bytes, without separators. Retain the decoded
+listing and root evidence used to select the ranges; a pointer alone does not prove
+the function's complete body. Readback checks the exact extent and hash and rejects
+unexpected functions or changes to existing names and ABI. Analyzer-inferred
+metadata for new functions is captured for independent trial review; ABI corrections
+belong in a later types batch.
+
 Run `plan PROPOSAL.json`, then `trial PLAN.json --port 8089`. A trial captures
 native output and a candidate snapshot, rolls back, and independently compares
 the restored inventory with the original snapshot. Inspect the retained trial,
@@ -257,6 +273,8 @@ receipt exists and a fresh snapshot proves rollback. Otherwise it blocks further
 mutations. Reconciliation does not approve the trial; run a new trial to obtain a
 reviewable result. The isolated `self-test` checks RET stack semantics, computed
 jump targets, public-return preservation, and rollback after the script boundary.
+It also checks function creation, invalid extents and hashes, ownership conflicts,
+failed-batch rollback, trial rollback, and native capture of newly created functions.
 
 The [analysis repair skill](../skills/ghidra-analysis-repair/SKILL.md) guides this
 workflow. Stable application and independent finalization are separate steps.

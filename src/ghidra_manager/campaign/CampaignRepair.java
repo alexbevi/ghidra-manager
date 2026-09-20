@@ -84,6 +84,42 @@ public class CampaignRepair extends GhidraScript {
                 !options.contains(key) || options.getBoolean(key, false) != c.get("old_value").getAsBoolean())
                 throw new Exception("Missing or stale analyzer option");
             options.setBoolean(key, c.get("value").getAsBoolean());
+        } else if (kind.equals("create_function")) {
+            var entry = toAddr(c.get("address").getAsString());
+            if (getFunctionContaining(entry) != null || getInstructionAt(entry) == null)
+                throw new Exception("Creation entry must be an unowned instruction");
+            var symbol = currentProgram.getSymbolTable().getPrimarySymbol(entry);
+            if (symbol != null && symbol.getSource() != SourceType.DEFAULT)
+                throw new Exception("Creation must preserve existing nondefault labels");
+            var body = new AddressSet();
+            Address previous = null;
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            for (var pair : c.getAsJsonArray("ranges")) {
+                var r = pair.getAsJsonArray();
+                var start = toAddr(r.get(0).getAsString());
+                var end = toAddr(r.get(1).getAsString());
+                if (start.compareTo(end) > 0 || (previous != null && start.compareTo(previous.add(1)) <= 0))
+                    throw new Exception("Creation ranges must be canonical");
+                for (var at = start; at.compareTo(end) <= 0;) {
+                    monitor.checkCancelled();
+                    var i = getInstructionAt(at);
+                    if (i == null || i.getMaxAddress().compareTo(end) > 0)
+                        throw new Exception("Creation body must cover whole instructions");
+                    if (currentProgram.getFunctionManager().getFunctionsOverlapping(
+                            new AddressSet(at, i.getMaxAddress())).hasNext())
+                        throw new Exception("Creation body overlaps another function");
+                    digest.update(at.toString().getBytes(StandardCharsets.UTF_8));
+                    digest.update(i.getBytes());
+                    if (i.getMaxAddress().equals(end)) break;
+                    at = i.getMaxAddress().add(1);
+                }
+                body.add(start, end);
+                previous = end;
+            }
+            if (!body.contains(entry)) throw new Exception("Creation body excludes entrypoint");
+            if (!HexFormat.of().formatHex(digest.digest()).equals(c.get("instruction_hash").getAsString()))
+                throw new Exception("Creation instruction hash differs");
+            currentProgram.getFunctionManager().createFunction(null, entry, body, SourceType.DEFAULT);
         } else if (kind.equals("body") || kind.equals("remove_function")) {
             var f = getFunctionAt(toAddr(c.get("address").getAsString()));
             if (f == null || !f.getBody().toString().equals(c.get("old_body").getAsString()))
