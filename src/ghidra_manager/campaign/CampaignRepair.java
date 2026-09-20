@@ -18,8 +18,19 @@ public class CampaignRepair extends GhidraScript {
 
     // MCP executes scripts on the EDT. Analysis workers must run off that thread.
     // Queue after the launching script returns so it owns no worker state.
-    void schedule(JsonObject config) {
-        var source = getSourceFile();
+    void schedule(JsonObject config) throws Exception {
+        // GUI MCP deletes its copied launch script on return. Resolve the retained
+        // packaged source, never that temporary copy, for the delayed worker.
+        var source = new generic.jar.ResourceFile(
+            Path.of(config.get("script_directory").getAsString(), "CampaignRepair.java").toString());
+        // Ghidra's generated activator already adds the core.osgi import. A
+        // direct BundleHost reference duplicates it and prevents bundle loading.
+        Object host = ghidra.app.script.GhidraScriptUtil.class.getMethod("getBundleHost").invoke(null);
+        var resourceClass = generic.jar.ResourceFile.class;
+        if (host.getClass().getMethod("getGhidraBundle", resourceClass)
+                .invoke(host, source.getParentFile()) == null)
+            host.getClass().getMethod("add", resourceClass, boolean.class, boolean.class)
+                .invoke(host, source.getParentFile(), true, false);
         var workerState = new ghidra.app.script.GhidraState(state);
         var arguments = getScriptArgs().clone();
         var output = Path.of(config.get("output").getAsString());

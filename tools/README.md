@@ -320,3 +320,5 @@ directory for up to 30 minutes after submission. The result and worker error log
 remain available after a client timeout. A scheduled response is not completion;
 rollback and applied-state checks still run before a trial or batch is accepted.
 The isolated self-test exercises this Swing-launch path as well as direct execution.
+The delayed worker loads its script from the installed package. It does not reuse
+MCP's launch copy, which some plugin releases delete when the request returns.

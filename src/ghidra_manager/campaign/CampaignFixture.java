@@ -9,6 +9,9 @@ public class CampaignFixture extends GhidraScript {
  void invoke(String script,JsonObject args)throws Exception{
   var file=new generic.jar.ResourceFile(getSourceFile().getParentFile(),script);
   var instance=ghidra.app.script.GhidraScriptUtil.getProvider(file).getScriptInstance(file,new java.io.PrintWriter(System.err,true));
+  args.addProperty("script_directory",getSourceFile().getParentFile().getAbsolutePath());
+  if(script.equals("CampaignRepair.java")&&javax.swing.SwingUtilities.isEventDispatchThread())
+   instance.setSourceFile(new generic.jar.ResourceFile("/deleted-mcp-launch/CampaignRepair.java"));
   instance.setScriptArgs(new String[]{Base64.getEncoder().encodeToString(args.toString().getBytes(StandardCharsets.UTF_8))});
   instance.execute(state,monitor,new java.io.PrintWriter(System.out,true));
  }

@@ -654,3 +654,5 @@ Repair trials allow a longer bounded response wait for their whole-program nativ
 audit. A timeout still requires reconciliation; see the tool guide for the limits.
 GUI repair analysis runs on a background worker with retained results and bounded
 polling. `campaign self-test` exercises this GUI launch path on its isolated fixture.
+Delayed repair workers use the retained package source even when MCP removes its
+temporary launch script; the fixture covers that launch-copy lifetime.

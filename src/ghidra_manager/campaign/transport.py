@@ -67,7 +67,13 @@ class Client:
                 # Retain the worker result even if this client exits or times out.
                 output_path = Path(arguments["directory"]) / f"script-result-{uuid4()}.json"
             encoded = base64.b64encode(
-                json.dumps({**arguments, "output": str(output_path)}).encode()
+                json.dumps(
+                    {
+                        **arguments,
+                        "output": str(output_path),
+                        "script_directory": str(files("ghidra_manager.campaign")),
+                    }
+                ).encode()
             ).decode()
             response = self.request(
                 "/run_ghidra_script",
