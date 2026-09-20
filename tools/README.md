@@ -70,6 +70,8 @@ during collection. Raw evidence stays in the cache; the default packet is at mos
 32 KiB. Use `--max-bytes` to adjust it. Oversized functions are explicitly omitted
 and `complete` is false: narrow the request or deliberately increase the limit.
 Do not treat an incomplete packet as sufficient evidence for a mutation.
+Both inventories use canonical ordering for freshness checks; changes in iterator
+order alone do not invalidate evidence, while changed type definitions still do.
 
 ## Incremental verification
 

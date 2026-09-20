@@ -14,6 +14,11 @@ def test_cache_reuse_dependency_invalidation_and_packet_bound(tmp_path, monkeypa
     operate(root, "start")
     record(root, 0, "baseline")
     snapshot = fixture_snapshot()
+    # Ghidra's type iterator order differs from the canonical path order.
+    snapshot["types"] = [
+        {"path": "/z/first", "definition": "int"},
+        {"path": "/a/second", "definition": "byte"},
+    ]
     snapshot["functions"] = [
         {
             "address": "00401000",
@@ -48,6 +53,8 @@ def test_cache_reuse_dependency_invalidation_and_packet_bound(tmp_path, monkeypa
     assert first["artifact"] == second["artifact"]
     assert second["cache_hits"] == 1
     assert len(captures) == 1
+    snapshot["types"][0]["definition"] = "float"
+    assert packet(root, client, ["00401000"])["captured"] == 1
     snapshot["configuration"]["changed"] = True
     assert packet(root, client, ["00401000"])["captured"] == 1
     snapshot["functions"][0]["signature"] = "x" * 5000

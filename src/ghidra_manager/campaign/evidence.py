@@ -8,7 +8,7 @@ from typing import Any
 
 from ghidra_manager.campaign import metrics
 from ghidra_manager.campaign.budget import locked, require_admission
-from ghidra_manager.campaign.inventory import fingerprint, latest, read, scan
+from ghidra_manager.campaign.inventory import fingerprint, latest, normalize, read, scan
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
 from ghidra_manager.storage import atomic_json
@@ -71,6 +71,7 @@ def packet(
                 raise ManagerError("Evidence collector omitted or duplicated a function")
             # Reconcile possible UI edits during collection before publishing cache entries.
             after = client.script("CampaignInventory", {})
+            normalize(after)
             if any(dependency_key(after, a) != keys[a] for a in addresses):
                 raise ManagerError(
                     "Evidence changed during capture; retry after the program settles"
