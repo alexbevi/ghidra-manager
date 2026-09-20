@@ -36,7 +36,7 @@ def compare(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
             kind = "added" if a is None else "removed"
         elif meaningful <= {"name", "source", "comment"}:
             kind = "decoration"
-        elif meaningful <= {"variables"} and [
+        elif meaningful <= {"variables", "name", "source", "comment"} and [
             {k: v for k, v in item.items() if k != "name"} for item in a["variables"]
         ] == [{k: v for k, v in item.items() if k != "name"} for item in b["variables"]]:
             kind = "variable-name"

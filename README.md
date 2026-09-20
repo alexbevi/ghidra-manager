@@ -635,6 +635,8 @@ commands. See the [tool guide](tools/README.md) for examples and compatibility.
 
 The [`ghidra-verify` companion skill](skills/ghidra-verify/SKILL.md) reviews
 bounded proposals independently before campaign finalization.
+Naming batches may combine function and stored-variable names without requiring
+native reanalysis when ABI, variable storage, and types remain unchanged.
 
 Campaign repair proposals support rollback-only trials and reviewed application with byte, ownership,
 p-code, and native jump-table evidence. See [repair trials](tools/README.md#repair-trials)
