@@ -60,6 +60,10 @@ def run(root: Path) -> dict[str, Any]:
                 "-postScript",
                 "CampaignFixture.java",
                 temporary,
+                "dynamic-global",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
                 "layout-failure",
                 "-postScript",
                 "CampaignFixture.java",
@@ -96,6 +100,7 @@ def run(root: Path) -> dict[str, Any]:
         marker in log.read_text(errors="replace")
         for marker in [
             "CAMPAIGN_FIXTURE_PASS",
+            "CAMPAIGN_DYNAMIC_GLOBAL_PASS",
             "CAMPAIGN_LAYOUT_PASS",
             "CAMPAIGN_ABI_PASS",
             "CAMPAIGN_REPAIR_TRIAL_PASS",

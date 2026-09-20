@@ -102,6 +102,9 @@ admission. Example proposal:
 
 Evidence IDs must already exist in the campaign evidence ledger. Global label
 renames use `kind: global` and the exact numeric `symbol_id` from the snapshot.
+Default dynamic labels can acquire new IDs when renamed. Initial validation
+requires the original ID; readback and receipt-backed replay resolve the exact
+new global name at the planned address. The isolated self-test covers this transition.
 Proposals require existing prior names, unique targets, and collision-free simple
 identifiers. No type or flow fields are accepted. A retained plan binds the
 snapshot, target fingerprints, and author; editing it invalidates its identifier.

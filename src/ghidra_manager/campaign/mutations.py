@@ -37,7 +37,7 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
     if before["types"] != after["types"] or before["configuration"] != after["configuration"]:
         raise ManagerError("Rename changed types or program configuration")
     for change in plan["changes"]:
-        if target(after, change)["name"] != change["new_name"]:
+        if target(after, change, renamed=True)["name"] != change["new_name"]:
             raise ManagerError("Exact rename readback failed")
     return {
         "complete": True,

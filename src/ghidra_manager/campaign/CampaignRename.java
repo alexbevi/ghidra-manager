@@ -5,6 +5,7 @@ import java.util.*;
 import java.nio.charset.StandardCharsets;
 import com.google.gson.*;
 public class CampaignRename extends GhidraScript {
+ Map<String,Symbol> globals=new HashMap<>();
  Variable variable(JsonObject c)throws Exception{
   var f=getFunctionAt(toAddr(c.get("address").getAsString()));if(f==null)throw new Exception("Missing owning function");Variable found=null;
   for(var v:f.getAllVariables())if(v.getVariableStorage().toString().equals(c.get("storage").getAsString())&&(v instanceof Parameter)==c.get("kind").getAsString().equals("parameter")){if(found!=null)throw new Exception("Ambiguous storage");found=v;}
@@ -12,13 +13,20 @@ public class CampaignRename extends GhidraScript {
  }
  String name(JsonObject c)throws Exception{
   String kind=c.get("kind").getAsString();if(kind.equals("function")){var f=getFunctionAt(toAddr(c.get("address").getAsString()));if(f==null)throw new Exception("Missing function");return f.getName();}
-  if(kind.equals("global")){var s=currentProgram.getSymbolTable().getSymbol(c.get("symbol_id").getAsLong());if(s==null||!s.getAddress().equals(toAddr(c.get("address").getAsString()))||!s.isGlobal()||s.getSymbolType()!=SymbolType.LABEL)throw new Exception("Missing global");return s.getName();}
+  if(kind.equals("global")){var s=globals.get(c.get("address").getAsString());if(s==null||!s.getAddress().equals(toAddr(c.get("address").getAsString()))||!s.isGlobal()||s.getSymbolType()!=SymbolType.LABEL)throw new Exception("Missing global");return s.getName();}
   if(kind.equals("local")||kind.equals("parameter"))return variable(c).getName();throw new Exception("Unsupported rename kind");
  }
  public void run()throws Exception{
   var config=JsonParser.parseString(new String(Base64.getDecoder().decode(getScriptArgs()[0]),StandardCharsets.UTF_8)).getAsJsonObject();var plan=config.getAsJsonObject("plan");var identity=plan.getAsJsonObject("identity");
   if(!currentProgram.getExecutableSHA256().equals(identity.get("digest").getAsString())||!currentProgram.getDomainFile().getPathname().equals(identity.get("program_path").getAsString()))throw new Exception("Program identity changed");
   var changes=plan.getAsJsonArray("changes");String id=plan.get("id").getAsString();var journal=currentProgram.getOptions("GhidraManagerCampaign");boolean already=journal.getString(id,"").equals("applied");
+  // Dynamic labels receive a persistent ID on rename. Retain the actual object,
+  // and resolve receipt-backed replays by exact global name and address.
+  for(var e:changes){var c=e.getAsJsonObject();if(!c.get("kind").getAsString().equals("global"))continue;String address=c.get("address").getAsString();Symbol s=null;
+   if(already){for(var candidate:currentProgram.getSymbolTable().getSymbols(toAddr(address)))if(candidate.isGlobal()&&candidate.getSymbolType()==SymbolType.LABEL&&candidate.getName().equals(c.get("new_name").getAsString())){if(s!=null)throw new Exception("Ambiguous renamed global");s=candidate;}}
+   else s=currentProgram.getSymbolTable().getSymbol(c.get("symbol_id").getAsLong());
+   globals.put(address,s);
+  }
   for(var e:changes){var c=e.getAsJsonObject();if(!name(c).equals(c.get(already?"new_name":"old_name").getAsString()))throw new Exception("Stale rename target");}
   boolean committed=already;int tx=currentProgram.startTransaction("Ghidra Manager rename "+id);
   try{
@@ -29,7 +37,7 @@ public class CampaignRename extends GhidraScript {
    }}
    if(!already)for(var e:changes){monitor.checkCancelled();var c=e.getAsJsonObject();String n=c.get("new_name").getAsString();String kind=c.get("kind").getAsString();if(!n.matches("[A-Za-z_][A-Za-z0-9_]*"))throw new Exception("Invalid name");
     if(kind.equals("function"))getFunctionAt(toAddr(c.get("address").getAsString())).setName(n,SourceType.USER_DEFINED);
-    else if(kind.equals("global"))currentProgram.getSymbolTable().getSymbol(c.get("symbol_id").getAsLong()).setName(n,SourceType.USER_DEFINED);
+    else if(kind.equals("global"))globals.get(c.get("address").getAsString()).setName(n,SourceType.USER_DEFINED);
     else variable(c).setName(n,SourceType.USER_DEFINED);
    }
    for(var e:changes){var c=e.getAsJsonObject();if(!name(c).equals(c.get("new_name").getAsString()))throw new Exception("Readback mismatch");}

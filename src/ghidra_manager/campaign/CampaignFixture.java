@@ -24,6 +24,14 @@ public class CampaignFixture extends GhidraScript {
    for(int n=0;n<2;n++){var c=new JsonObject();c.addProperty("kind","function");c.addProperty("address",toAddr(0x1000+(n==0?0:n+1)).toString());c.addProperty("old_name",n==0?"first":"second");c.addProperty("new_name",n==0?"renamed_first":"invalid name");changes.add(c);}plan.add("changes",changes);args.add("plan",plan);args.add("before",before);args.addProperty("output",root.resolve("rename.json").toString());Files.writeString(root.resolve("fixture-args.json"),args.toString());return;
   }
   var args=JsonParser.parseString(Files.readString(root.resolve("fixture-args.json"))).getAsJsonObject();
+  if(phase.equals("dynamic-global")){
+   var address=toAddr(0x1010);currentProgram.getReferenceManager().addMemoryReference(toAddr(0x1000),address,RefType.DATA,SourceType.USER_DEFINED,0);
+   var symbol=currentProgram.getSymbolTable().getPrimarySymbol(address);if(symbol==null||!symbol.isDynamic())throw new Exception("Fixture needs dynamic label");long originalId=symbol.getID();
+   var changes=new JsonArray();var c=new JsonObject();c.addProperty("kind","global");c.addProperty("address",address.toString());c.addProperty("symbol_id",originalId);c.addProperty("old_name",symbol.getName());c.addProperty("new_name","fixture_buffer");changes.add(c);
+   args.getAsJsonObject("plan").addProperty("id","fixture-dynamic-global");args.getAsJsonObject("plan").add("changes",changes);invoke("CampaignRename.java",args);
+   var named=currentProgram.getSymbolTable().getPrimarySymbol(address);if(!named.getName().equals("fixture_buffer")||named.getID()==originalId)throw new Exception("Dynamic label did not acquire persistent identity");
+   invoke("CampaignRename.java",args);println("CAMPAIGN_DYNAMIC_GLOBAL_PASS");return;
+  }
   if(phase.equals("repair-apply")){
    var repair=JsonParser.parseString(Files.readString(root.resolve("repair-args.json"))).getAsJsonObject();repair.addProperty("mode","apply");invoke("CampaignRepair.java",repair);println("CAMPAIGN_REPAIR_APPLIED");return;
   }

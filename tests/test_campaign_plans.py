@@ -6,7 +6,7 @@ import pytest
 
 from ghidra_manager.campaign.budget import operate
 from ghidra_manager.campaign.inventory import scan
-from ghidra_manager.campaign.plans import create, load_plan
+from ghidra_manager.campaign.plans import create, load_plan, target
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
 from tests.test_campaign_budget import record
@@ -91,3 +91,37 @@ def test_local_requires_exact_persistent_storage(tmp_path, monkeypatch):
     proposal["changes"][0]["storage"] = "Stack[-8]:4"
     with pytest.raises(ManagerError, match="persistent target"):
         create(root, proposal)
+
+
+def test_renamed_dynamic_global_uses_exact_name_address_and_namespace():
+    snapshot = fixture_snapshot()
+    symbol = {
+        "id": 42,
+        "address": "00402000",
+        "kind": "Label",
+        "namespace": "Global",
+        "name": "buffer_head",
+    }
+    snapshot["symbols"] = [symbol]
+    change = {
+        "kind": "global",
+        "address": "00402000",
+        "symbol_id": 2**62,
+        "new_name": "buffer_head",
+    }
+    with pytest.raises(ManagerError, match="persistent target"):
+        target(snapshot, change)
+    assert target(snapshot, change, renamed=True) == symbol
+    for field, value in [
+        ("address", "00402004"),
+        ("namespace", "Other"),
+        ("kind", "Function"),
+        ("name", "unrelated"),
+    ]:
+        changed = deepcopy(snapshot)
+        changed["symbols"][0][field] = value
+        with pytest.raises(ManagerError, match="persistent target"):
+            target(changed, change, renamed=True)
+    snapshot["symbols"].append(dict(symbol, id=43))
+    with pytest.raises(ManagerError, match="persistent target"):
+        target(snapshot, change, renamed=True)

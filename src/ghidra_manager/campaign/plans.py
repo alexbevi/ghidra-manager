@@ -13,7 +13,9 @@ from ghidra_manager.errors import ManagerError
 from ghidra_manager.storage import atomic_json
 
 
-def target(snapshot: dict[str, Any], change: dict[str, Any]) -> dict[str, Any]:
+def target(
+    snapshot: dict[str, Any], change: dict[str, Any], *, renamed: bool = False
+) -> dict[str, Any]:
     if change["kind"] == "function":
         matches = [f for f in snapshot["functions"] if f["address"] == change["address"]]
     elif change["kind"] in {"parameter", "local"}:
@@ -29,7 +31,7 @@ def target(snapshot: dict[str, Any], change: dict[str, Any]) -> dict[str, Any]:
         matches = [
             s
             for s in snapshot["symbols"]
-            if s["id"] == change.get("symbol_id")
+            if (s["name"] == change["new_name"] if renamed else s["id"] == change.get("symbol_id"))
             and s["address"] == change["address"]
             and s["kind"] == "Label"
             and s["namespace"] == "Global"
