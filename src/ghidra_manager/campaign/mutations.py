@@ -9,6 +9,7 @@ from ghidra_manager.campaign import layouts, native, repairs
 from ghidra_manager.campaign.budget import locked, require_admission, timestamp
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.inventory import check_identity, fingerprint, latest, read
+from ghidra_manager.campaign.inventory import normalize as normalize
 from ghidra_manager.campaign.plans import load_plan, target
 from ghidra_manager.campaign.transport import Client
 from ghidra_manager.errors import ManagerError
@@ -124,16 +125,6 @@ def apply(
             "saved": False,
             "verification": str(directory / "verification.json"),
         }
-
-
-def normalize(snapshot: dict[str, Any]) -> None:
-    for key, field in [
-        ("functions", "address"),
-        ("symbols", "id"),
-        ("types", "path"),
-        ("strings", "address"),
-    ]:
-        snapshot[key].sort(key=lambda row: row[field])
 
 
 def reconcile(root: Path, client: Client) -> dict[str, Any]:

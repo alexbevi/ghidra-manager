@@ -646,3 +646,7 @@ the deterministic offline workload; `self-test` runs the packaged Java scripts i
 an isolated temporary Ghidra project. Neither command analyzes a retail project.
 Budget defaults, adjustment commands, measurement coverage, and all proposal/review
 schemas are documented in [tools/README.md](tools/README.md).
+
+Campaign snapshots sort unordered callee sets so repeated scans preserve plan
+fingerprints. Collector upgrades require a fresh scan and plan; retained artifacts
+are never rewritten.

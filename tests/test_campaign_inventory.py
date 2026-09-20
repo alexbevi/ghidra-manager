@@ -80,3 +80,26 @@ def test_collector_uses_result_file_not_large_console_output(monkeypatch):
     monkeypatch.setattr(Client, "request", request)
     result = Client(8089, "/fixture.exe").script("CampaignInventory", {})
     assert len(result["large"]) == 100000
+
+
+def test_callee_order_is_stable_but_edge_and_parameter_changes_are_visible(tmp_path, monkeypatch):
+    from ghidra_manager.campaign.inventory import fingerprint, normalize
+
+    root = tmp_path / "state"
+    initialize(root)
+    value = fixture_snapshot()
+    value["functions"] = [{"address": "00401000", "callees": ["00403000", "00402000"],
+                           "abi": {"parameters": ["EAX", "EDX"]}}]
+    monkeypatch.setattr(Client, "script", lambda *a: deepcopy(value))
+    client = Client(8089, "/fixture.exe")
+    first = scan(root, client)
+    value["functions"][0]["callees"].reverse()
+    assert scan(root, client) == first
+    normalize(value)
+    assert fingerprint(value) == first["snapshot"]
+    value["functions"][0]["callees"].append("00404000")
+    assert scan(root, client)["snapshot"] != first["snapshot"]
+    previous = fingerprint(value)
+    value["functions"][0]["abi"]["parameters"].reverse()
+    normalize(value)
+    assert fingerprint(value) != previous

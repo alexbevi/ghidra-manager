@@ -49,6 +49,20 @@ def validate_snapshot(value: dict[str, Any]) -> None:
         raise ManagerError("Duplicate function addresses in inventory")
 
 
+def normalize(snapshot: dict[str, Any]) -> None:
+    """Canonicalize unordered inventories without changing ABI or body order."""
+    for key, field in [
+        ("functions", "address"),
+        ("symbols", "id"),
+        ("types", "path"),
+        ("strings", "address"),
+    ]:
+        snapshot[key].sort(key=lambda row: row[field])
+    for function in snapshot["functions"]:
+        if "callees" in function:
+            function["callees"].sort()
+
+
 def scan(root: Path, client: Client) -> dict[str, Any]:
     with locked(root):
         value = client.script("CampaignInventory", {})
@@ -56,13 +70,7 @@ def scan(root: Path, client: Client) -> dict[str, Any]:
         check_identity(root, value)
         if (root / "snapshot.json").exists() and latest(root)["identity"] != value["identity"]:
             raise ManagerError("Snapshot identity changed; explicit campaign migration required")
-        for key, field in [
-            ("functions", "address"),
-            ("symbols", "id"),
-            ("types", "path"),
-            ("strings", "address"),
-        ]:
-            value[key].sort(key=lambda row: row[field])
+        normalize(value)
         snapshot_id = fingerprint(value)
         directory = root / "artifacts" / "snapshots"
         directory.mkdir(parents=True, exist_ok=True)
