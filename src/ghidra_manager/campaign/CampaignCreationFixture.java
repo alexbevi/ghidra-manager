@@ -7,6 +7,7 @@ import com.google.gson.*;
 /** Isolated creation tests; separate script phases expose real rollback boundaries. */
 public class CampaignCreationFixture extends GhidraScript {
     void invoke(String script, JsonObject args) throws Exception {
+        args.addProperty("script_directory", getSourceFile().getParentFile().getAbsolutePath());
         var file = new generic.jar.ResourceFile(getSourceFile().getParentFile(), script);
         var instance = ghidra.app.script.GhidraScriptUtil.getProvider(file)
             .getScriptInstance(file, new java.io.PrintWriter(System.err, true));
@@ -77,7 +78,21 @@ public class CampaignCreationFixture extends GhidraScript {
                 if (!failed || getFunctionAt(toAddr(0x1005)) != null)
                     throw new Exception("Invalid creation accepted: " + test);
             }
-            invoke("CampaignRepair.java", args);
+            // Creation must also execute through the refreshed GUI worker bundle.
+            var output = Path.of(args.get("output").getAsString());
+            Files.deleteIfExists(output);
+            javax.swing.SwingUtilities.invokeAndWait(() -> {
+                try {invoke("CampaignRepair.java", args);}
+                catch (Exception error) {throw new RuntimeException(error);}
+            });
+            long deadline = System.nanoTime() + 120_000_000_000L;
+            while (!Files.exists(output)) {
+                if (System.nanoTime() > deadline) throw new Exception("Creation worker timed out");
+                Thread.sleep(50);
+            }
+            var response = JsonParser.parseString(Files.readString(output)).getAsJsonObject();
+            if (!response.get("complete").getAsBoolean() || !response.get("rolled_back").getAsBoolean())
+                throw new Exception("Creation worker failed: " + response);
             return;
         }
         if (phase.equals("apply")) {

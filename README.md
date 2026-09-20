@@ -669,3 +669,5 @@ GUI repair analysis runs on a background worker with retained results and bounde
 polling. `campaign self-test` exercises this GUI launch path on its isolated fixture.
 Delayed repair workers use the retained package source even when MCP removes its
 temporary launch script; the fixture covers that launch-copy lifetime.
+Workers reload their retained script bundle before execution so an open GUI does
+not reuse old classes after another Ghidra process updates the shared compiled cache.

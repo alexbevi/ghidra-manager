@@ -39,8 +39,27 @@ public class CampaignRepair extends GhidraScript {
                 try (var log = new java.io.PrintWriter(Files.newBufferedWriter(
                         output.resolveSibling(output.getFileName() + ".log")))) {
                     try {
-                        var script = ghidra.app.script.GhidraScriptUtil.getProvider(source)
-                            .getScriptInstance(source, log);
+                        // Another Ghidra process (including the headless fixture) can
+                        // update shared compiled files while this GUI retains old
+                        // classes. Timestamp-based build checks cannot detect that.
+                        GhidraScript script;
+                        var lockClass = host.getClass().getClassLoader()
+                            .loadClass("ghidra.app.plugin.core.osgi.OSGiParallelLock");
+                        try (var lock = (AutoCloseable) lockClass.getConstructor().newInstance()) {
+                            var bundle = host.getClass().getMethod("getGhidraBundle", resourceClass)
+                                .invoke(host, source.getParentFile());
+                            String location = (String) bundle.getClass()
+                                .getMethod("getLocationIdentifier").invoke(bundle);
+                            host.getClass().getMethod("deactivateSynchronously", String.class)
+                                .invoke(host, location);
+                            // loadClass runs under our lock; getScriptInstance would
+                            // acquire the same non-reentrant file lock a second time.
+                            var provider = (ghidra.app.script.JavaScriptProvider)
+                                ghidra.app.script.GhidraScriptUtil.getProvider(source);
+                            script = provider.loadClass(source, log).asSubclass(GhidraScript.class)
+                                .getDeclaredConstructor().newInstance();
+                            script.setSourceFile(source);
+                        }
                         script.setScriptArgs(arguments);
                         script.execute(workerState, new ghidra.util.task.TaskMonitorAdapter(), log);
                     } catch (Throwable error) {

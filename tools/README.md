@@ -275,6 +275,11 @@ reviewable result. The isolated `self-test` checks RET stack semantics, computed
 jump targets, public-return preservation, and rollback after the script boundary.
 It also checks function creation, invalid extents and hashes, ownership conflicts,
 failed-batch rollback, trial rollback, and native capture of newly created functions.
+The GUI worker reloads its retained script bundle before executing. This handles an
+open GUI retaining old classes after a headless process updates the shared compiled
+cache. The fixture verifies that the previously loaded bundle is uninstalled before
+the replacement worker runs. A failed worker still requires `trial-reconcile` and
+a new reviewed trial; reloading does not authorize retrying an uncertain mutation.
 
 The [analysis repair skill](../skills/ghidra-analysis-repair/SKILL.md) guides this
 workflow. Stable application and independent finalization are separate steps.

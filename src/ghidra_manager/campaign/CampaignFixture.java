@@ -90,12 +90,27 @@ public class CampaignFixture extends GhidraScript {
    var jump=new JsonObject();jump.addProperty("kind","jump_table");jump.addProperty("address",toAddr(0x1001).toString());jump.addProperty("function",toAddr(0x1000).toString());jump.addProperty("bytes","c3");var targets=new JsonArray();targets.add(toAddr(0x1002).toString());targets.add(toAddr(0x1003).toString());jump.add("targets",targets);changes.add(jump);
    args.getAsJsonObject("plan").addProperty("id","fixture-repair");args.getAsJsonObject("plan").add("changes",changes);args.addProperty("mode","trial");args.addProperty("directory",root.toString());Files.writeString(root.resolve("repair-args.json"),args.toString());
    // Exercise the same EDT launch used by GUI MCP, then wait off the EDT.
+   Object host=ghidra.app.script.GhidraScriptUtil.class.getMethod("getBundleHost").invoke(null);
+   Object bundle=host.getClass().getMethod("getGhidraBundle",generic.jar.ResourceFile.class).invoke(host,getSourceFile().getParentFile());
+   Object oldBundle=bundle.getClass().getMethod("getOSGiBundle").invoke(bundle);
+   if(oldBundle==null)throw new Exception("Fixture requires an already loaded package bundle");
+   var bundleType=host.getClass().getClassLoader().loadClass("org.osgi.framework.Bundle");
+   var oldClass=(Class<?>)bundleType.getMethod("loadClass",String.class).invoke(oldBundle,"CampaignRepair");
+   String location=(String)bundle.getClass().getMethod("getLocationIdentifier").invoke(bundle);
+   var compiled=Path.of(java.net.URI.create(location.substring("reference:".length()))).resolve("CampaignRepair.class");
+   var compiledTime=Files.getLastModifiedTime(compiled);
    Path output=Path.of(args.get("output").getAsString());Files.deleteIfExists(output);
    var trialArgs=args;javax.swing.SwingUtilities.invokeAndWait(() -> {try{invoke("CampaignRepair.java",trialArgs);}catch(Exception e){throw new RuntimeException(e);}});
    long deadline=System.nanoTime()+120_000_000_000L;
    while(!Files.exists(output)){if(System.nanoTime()>deadline)throw new Exception("Async trial timed out");Thread.sleep(50);}
    var response=JsonParser.parseString(Files.readString(output)).getAsJsonObject();
    if(!response.get("complete").getAsBoolean()||!response.get("rolled_back").getAsBoolean())throw new Exception("Async trial failed: "+response);
+   // OSGi UNINSTALLED = 1. Prove reload even when compiled files are current.
+   if(((Number)bundleType.getMethod("getState").invoke(oldBundle)).intValue()!=1)throw new Exception("Repair reused an already loaded bundle");
+   Object replacement=bundle.getClass().getMethod("getOSGiBundle").invoke(bundle);
+   var replacementClass=(Class<?>)bundleType.getMethod("loadClass",String.class).invoke(replacement,"CampaignRepair");
+   if(replacement==oldBundle||replacementClass.getClassLoader()==oldClass.getClassLoader()||!Files.getLastModifiedTime(compiled).equals(compiledTime))throw new Exception("Fixture must reload without recompiling");
+   println("CAMPAIGN_REPAIR_RELOAD_PASS");
    println("CAMPAIGN_REPAIR_ASYNC_PASS");println("CAMPAIGN_REPAIR_CAPTURE_PASS");return;
   }
   if(phase.equals("abi")){
