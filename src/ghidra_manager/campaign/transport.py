@@ -29,8 +29,13 @@ class Client:
             data=data,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
+        # Repair trials keep one transaction open during a whole-program native
+        # audit. The server may ignore its timeout hint; never retry on expiry.
+        timeout = 120
+        if endpoint == "/run_ghidra_script" and body:
+            timeout = max(timeout, int(body.get("timeout_seconds", 60)) + 60)
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read().decode()
             try:
                 value = json.loads(raw)
@@ -64,7 +69,7 @@ class Client:
                 {
                     "script_name": str(script),
                     "args": encoded,
-                    "timeout_seconds": 60,
+                    "timeout_seconds": 1800 if name == "CampaignRepair" else 60,
                     "capture_output": True,
                 },
             )

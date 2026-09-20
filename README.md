@@ -650,3 +650,5 @@ schemas are documented in [tools/README.md](tools/README.md).
 Campaign snapshots sort unordered callee sets so repeated scans preserve plan
 fingerprints. Collector upgrades require a fresh scan and plan; retained artifacts
 are never rewritten.
+Repair trials allow a longer bounded response wait for their whole-program native
+audit. A timeout still requires reconciliation; see the tool guide for the limits.

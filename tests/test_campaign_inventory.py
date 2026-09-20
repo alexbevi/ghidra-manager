@@ -103,3 +103,44 @@ def test_callee_order_is_stable_but_edge_and_parameter_changes_are_visible(tmp_p
     value["functions"][0]["abi"]["parameters"].reverse()
     normalize(value)
     assert fingerprint(value) != previous
+
+
+def test_repair_gets_full_audit_timeout_and_transport_does_not_retry(monkeypatch):
+    import base64
+    import json
+    from pathlib import Path
+
+    monkeypatch.setattr(Client, "idle", lambda _: None)
+    requests = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b'{"console_output":"CAMPAIGN_RESULT:complete"}'
+
+    def urlopen(request, *, timeout):
+        body = json.loads(request.data)
+        requests.append(timeout)
+        assert body["timeout_seconds"] == 1800
+        arguments = json.loads(base64.b64decode(body["args"]))
+        Path(arguments["output"]).write_text('{"complete":true}')
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    client = Client(8089, "/fixture.exe")
+    assert client.script("CampaignRepair", {}) == {"complete": True}
+    assert requests == [1860]
+
+    def timeout(request, *, timeout):
+        requests.append(timeout)
+        raise TimeoutError("still running")
+
+    monkeypatch.setattr("urllib.request.urlopen", timeout)
+    with pytest.raises(ManagerError, match="reconcile before retrying"):
+        client.script("CampaignRepair", {})
+    assert requests == [1860, 1860]

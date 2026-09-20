@@ -306,3 +306,10 @@ publishes no verified receipt. Keep UI edits outside manager mutation/finalizati
 windows. A save response alone cannot prove the reviewed snapshot was saved.
 New-layout plans reject changes to existing types or unrelated function ABIs;
 existing structure replacement remains outside this tool's supported operations.
+
+Whole-program repair trials and applications allow 30 minutes for the script and
+31 minutes for the HTTP response. Ordinary collectors retain a 60-second script
+hint and 120-second HTTP wait. These are observation limits: some MCP releases
+ignore the script hint, and a timeout does not cancel or roll back the operation.
+Keep the command running in a monitored terminal session and reconcile any timeout
+before retrying. The manager never retries a timed-out write automatically.
