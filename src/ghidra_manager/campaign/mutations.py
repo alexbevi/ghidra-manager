@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from ghidra_manager.campaign import layouts, native, repairs
+from ghidra_manager.campaign import field_names, layouts, native, repairs
 from ghidra_manager.campaign.budget import locked, require_admission, timestamp
 from ghidra_manager.campaign.diffing import compare
 from ghidra_manager.campaign.inventory import check_identity, fingerprint, latest, read
@@ -29,13 +30,27 @@ def readback(plan: dict[str, Any], before: dict[str, Any], after: dict[str, Any]
             "verified_at": timestamp(),
         }
     delta = compare(before, after)
-    allowed_functions = {c["address"] for c in plan["changes"] if c["kind"] != "global"}
+    allowed_functions = {
+        c["address"] for c in plan["changes"] if c["kind"] not in {"global", "field"}
+    }
     if any(c["address"] not in allowed_functions for c in delta["changed"]):
         raise ManagerError("Unplanned function metadata changed")
     if any(c["kind"] not in {"decoration", "variable-name"} for c in delta["changed"]):
         raise ManagerError("Rename changed semantic metadata")
-    if before["types"] != after["types"] or before["configuration"] != after["configuration"]:
+    if (
+        field_names.expected_types(plan, before) != after["types"]
+        or before["configuration"] != after["configuration"]
+    ):
         raise ManagerError("Rename changed types or program configuration")
+    if any(c["kind"] == "field" for c in plan["changes"]):
+        expected = deepcopy(before)
+        expected["types"] = field_names.expected_types(plan, before)
+        expected.setdefault("transactions", {})[plan["id"]] = "applied"
+        if expected != after:
+            raise ManagerError("Field rename changed unrelated program metadata")
+        normalized = deepcopy(after)
+        normalized["types"] = before["types"]
+        delta = compare(before, normalized)
     for change in plan["changes"]:
         if target(after, change, renamed=True)["name"] != change["new_name"]:
             raise ManagerError("Exact rename readback failed")

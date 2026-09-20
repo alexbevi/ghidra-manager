@@ -32,6 +32,42 @@ public class CampaignFixture extends GhidraScript {
    var named=currentProgram.getSymbolTable().getPrimarySymbol(address);if(!named.getName().equals("fixture_buffer")||named.getID()==originalId)throw new Exception("Dynamic label did not acquire persistent identity");
    invoke("CampaignRename.java",args);println("CAMPAIGN_DYNAMIC_GLOBAL_PASS");return;
   }
+  if(phase.equals("field-prepare")){
+   var dtm=currentProgram.getDataTypeManager();var structure=new ghidra.program.model.data.StructureDataType(new ghidra.program.model.data.CategoryPath("/Fixture"),"Image",8);
+   structure.replaceAtOffset(0,ghidra.program.model.data.UnsignedIntegerDataType.dataType,4,"unknown","preserved comment");
+   structure.replaceAtOffset(4,ghidra.program.model.data.UnsignedIntegerDataType.dataType,4,"width",null);
+   var image=(ghidra.program.model.data.Structure)dtm.addDataType(structure,ghidra.program.model.data.DataTypeConflictHandler.DEFAULT_HANDLER);
+   var capture=new JsonObject();capture.addProperty("output",root.resolve("field-before.json").toString());invoke("CampaignInventory.java",capture);
+   var before=JsonParser.parseString(Files.readString(root.resolve("field-before.json"))).getAsJsonObject();args.add("before",before);
+   var changes=JsonParser.parseString("[{\"kind\":\"field\",\"address\":\"/Fixture/Image\",\"offset\":0,\"old_name\":\"unknown\",\"new_name\":\"colorKey\"},{\"kind\":\"field\",\"address\":\"/Fixture/Image\",\"offset\":4,\"old_name\":\"width\",\"new_name\":\"invalid name\"}]").getAsJsonArray();
+   args.getAsJsonObject("plan").addProperty("id","fixture-field-rename");args.getAsJsonObject("plan").addProperty("queue","naming");args.getAsJsonObject("plan").add("changes",changes);
+   Files.writeString(root.resolve("field-args.json"),args.toString());return;
+  }
+  if(phase.equals("field-failure")){invoke("CampaignRename.java",JsonParser.parseString(Files.readString(root.resolve("field-args.json"))).getAsJsonObject());throw new Exception("Expected field failure");}
+  if(phase.equals("field-rename")){
+   args=JsonParser.parseString(Files.readString(root.resolve("field-args.json"))).getAsJsonObject();
+   var dtm=currentProgram.getDataTypeManager();var image=(ghidra.program.model.data.Structure)dtm.getDataType("/Fixture/Image");
+   if(image==null||!image.getComponentAt(0).getFieldName().equals("unknown")||!image.getComponentAt(4).getFieldName().equals("width")||currentProgram.getOptions("GhidraManagerCampaign").getString("fixture-field-rename","").equals("applied"))throw new Exception("Field rollback failed");
+   var changes=args.getAsJsonObject("plan").getAsJsonArray("changes");var capture=new JsonObject();
+   changes.remove(1);invoke("CampaignRename.java",args);invoke("CampaignRename.java",args);
+   image=(ghidra.program.model.data.Structure)dtm.getDataType("/Fixture/Image");
+   if(!image.getComponentAt(0).getFieldName().equals("colorKey")||image.getLength()!=8||!image.getComponentAt(0).getComment().equals("preserved comment"))throw new Exception("Field readback failed");
+   Files.writeString(root.resolve("field-args.json"),args.toString());capture.addProperty("output",root.resolve("field-after.json").toString());invoke("CampaignInventory.java",capture);
+   println("CAMPAIGN_FIELD_RENAME_PASS");return;
+  }
+  if(phase.equals("field-stale")){
+   var dtm=currentProgram.getDataTypeManager();var base=ghidra.program.model.data.UnsignedIntegerDataType.dataType;
+   var first=dtm.addDataType(new ghidra.program.model.data.TypedefDataType(new ghidra.program.model.data.CategoryPath("/First"),"Pixel",base),null);
+   var second=dtm.addDataType(new ghidra.program.model.data.TypedefDataType(new ghidra.program.model.data.CategoryPath("/Second"),"Pixel",base),null);
+   var image=(ghidra.program.model.data.Structure)dtm.getDataType("/Fixture/Image");image.replaceAtOffset(0,first,4,"colorKey","preserved comment");
+   var capture=new JsonObject();capture.addProperty("output",root.resolve("field-stale-before.json").toString());invoke("CampaignInventory.java",capture);
+   args=JsonParser.parseString(Files.readString(root.resolve("field-args.json"))).getAsJsonObject();args.add("before",JsonParser.parseString(Files.readString(root.resolve("field-stale-before.json"))));
+   args.getAsJsonObject("plan").addProperty("id","fixture-field-stale");var change=args.getAsJsonObject("plan").getAsJsonArray("changes").get(0).getAsJsonObject();change.addProperty("old_name","colorKey");change.addProperty("new_name","rejectedKey");
+   String definition=image.toString();image.replaceAtOffset(0,second,4,"colorKey","preserved comment");if(!definition.equals(image.toString()))throw new Exception("Stale fixture needs identical rendering");
+   boolean failed=false;try{invoke("CampaignRename.java",args);}catch(Exception expected){failed=true;}
+   if(!failed||!image.getComponentAt(0).getFieldName().equals("colorKey")||currentProgram.getOptions("GhidraManagerCampaign").getString("fixture-field-stale","").equals("applied"))throw new Exception("Stale field type accepted");
+   println("CAMPAIGN_FIELD_STALE_PASS");return;
+  }
   if(phase.equals("repair-apply")){
    var repair=JsonParser.parseString(Files.readString(root.resolve("repair-args.json"))).getAsJsonObject();repair.addProperty("mode","apply");invoke("CampaignRepair.java",repair);println("CAMPAIGN_REPAIR_APPLIED");return;
   }

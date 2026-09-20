@@ -639,6 +639,10 @@ Naming batches may combine function and stored-variable names without requiring
 native reanalysis when ABI, variable storage, and types remain unchanged.
 Global renames also support dynamic `DAT_` labels whose IDs change on naming;
 the isolated self-test verifies readback and receipt-backed replay.
+Existing structure fields can be renamed by datatype path and byte offset in a
+separate naming batch. The manager preserves layout and types and verifies that
+only the requested field names changed. See the [field schema](tools/README.md#applying-and-reconciling-naming-batches)
+and the preceding naming-plan examples.
 
 Campaign repair proposals support rollback-only trials and reviewed application with byte, ownership,
 p-code, and native jump-table evidence. See [repair trials](tools/README.md#repair-trials)

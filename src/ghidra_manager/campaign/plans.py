@@ -36,6 +36,16 @@ def target(
             and s["kind"] == "Label"
             and s["namespace"] == "Global"
         ]
+    elif change["kind"] == "field":
+        if type(change.get("offset")) is not int or change["offset"] < 0:
+            raise ManagerError("Field rename requires a nonnegative byte offset")
+        matches = [
+            f
+            for t in snapshot["types"]
+            if t["path"] == change["address"]
+            for f in t.get("fields", [])
+            if f["offset"] == change["offset"]
+        ]
     else:
         raise ManagerError(f"Unsupported change kind: {change['kind']}")
     if len(matches) != 1:
@@ -59,6 +69,9 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
             raise ManagerError("Proposal requires only author and changes")
         if not isinstance(proposal["changes"], list) or not proposal["changes"]:
             raise ManagerError("Proposal changes must be a nonempty list")
+        kinds = {c.get("kind") for c in proposal["changes"]}
+        if "field" in kinds and kinds != {"field"}:
+            raise ManagerError("Keep structure field naming in a separate naming batch")
         evidence = {
             json.loads(line)["id"]
             for line in (root / "evidence.jsonl").read_text().splitlines()
@@ -76,6 +89,7 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
                 "evidence_ids",
                 "symbol_id",
                 "storage",
+                "offset",
             }
             if set(change) - allowed or not {
                 "kind",
@@ -102,6 +116,7 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
                     "address": change["address"],
                     "symbol_id": change.get("symbol_id"),
                     "storage": change.get("storage"),
+                    "offset": change.get("offset"),
                 }
             )
             if key in touched:
@@ -115,6 +130,14 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
                     for f in snapshot["functions"]
                     if f["address"] == change["address"]
                     for v in f["variables"]
+                ]
+            elif change["kind"] == "field":
+                namespace = change["address"]
+                occupied = [
+                    dict(f, namespace=namespace)
+                    for t in snapshot["types"]
+                    if t["path"] == namespace
+                    for f in t["fields"]
                 ]
             name_key = (namespace, change["new_name"])
             if name_key in new_names or any(
@@ -133,6 +156,9 @@ def create(root: Path, proposal: dict[str, Any]) -> dict[str, Any]:
             "identity": snapshot["identity"],
             "changes": changes,
         }
+        from ghidra_manager.campaign.field_names import expected_types
+
+        expected_types(plan, snapshot)
         plan_id = fingerprint(plan)
         path = root / "artifacts" / "plans" / (plan_id + ".json")
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -117,6 +117,24 @@ uniquely. Decompiler-only temporaries have no persistent storage and are rejecte
 This operation only names existing variables; it never creates or merges stack
 storage or changes a datatype, ABI, or parameter list.
 
+Existing structure fields use a separate naming batch with `kind: field`, the
+full datatype path in `address`, and an integer byte `offset`:
+
+```json
+{"author":"analyst","changes":[{"kind":"field","address":"/Example/Image",
+"offset":12,"old_name":"unknown_0c","new_name":"colorKey",
+"evidence_ids":["ev-color-key"]}]}
+```
+
+The component must already exist and have a unique offset and prior name.
+Bitfields and mixed field/function batches are unsupported. The manager checks
+the complete structure definition before writing and permits only the field name
+and its rendered definition row to differ afterward. Layout, packing, comments,
+types, code and unrelated metadata must remain unchanged. This name-only operation
+does not require native recapture; semantic evidence and independent review still
+apply. Unsupported definition rendering fails closed during planning. The
+isolated self-test covers field rollback, receipt replay and full readback.
+
 ## Applying and reconciling naming batches
 
 `campaign --state DIRECTORY apply PLAN.json --port 8089` rechecks identity,

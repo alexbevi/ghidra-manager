@@ -72,6 +72,22 @@ def run(root: Path) -> dict[str, Any]:
                 "-postScript",
                 "CampaignFixture.java",
                 temporary,
+                "field-prepare",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "field-failure",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "field-rename",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
+                "field-stale",
+                "-postScript",
+                "CampaignFixture.java",
+                temporary,
                 "repair-trial",
                 "-postScript",
                 "CampaignFixture.java",
@@ -102,6 +118,8 @@ def run(root: Path) -> dict[str, Any]:
             "CAMPAIGN_FIXTURE_PASS",
             "CAMPAIGN_DYNAMIC_GLOBAL_PASS",
             "CAMPAIGN_LAYOUT_PASS",
+            "CAMPAIGN_FIELD_RENAME_PASS",
+            "CAMPAIGN_FIELD_STALE_PASS",
             "CAMPAIGN_ABI_PASS",
             "CAMPAIGN_REPAIR_TRIAL_PASS",
             "CAMPAIGN_REPAIR_CAPTURE_PASS",
@@ -119,5 +137,12 @@ def run(root: Path) -> dict[str, Any]:
         read(directory / "repair-args.json")["plan"],
         read(directory / "before-repair.json"),
         read(directory / "trial-snapshot.json"),
+    )
+    from ghidra_manager.campaign.mutations import readback as naming_readback
+
+    naming_readback(
+        read(directory / "field-args.json")["plan"],
+        read(directory / "field-before.json"),
+        read(directory / "field-after.json"),
     )
     return {"passed": True, "log": str(log), "retail_program_modified": False}
