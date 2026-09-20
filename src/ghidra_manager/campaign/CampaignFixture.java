@@ -40,7 +40,15 @@ public class CampaignFixture extends GhidraScript {
    var body=new JsonObject();body.addProperty("kind","body");body.addProperty("address",toAddr(0x1000).toString());body.addProperty("old_body",getFunctionAt(toAddr(0x1000)).getBody().toString());var ranges=new JsonArray();var range=new JsonArray();range.add(toAddr(0x1000).toString());range.add(toAddr(0x1003).toString());ranges.add(range);body.add("ranges",ranges);changes.add(body);
    var flow=new JsonObject();flow.addProperty("kind","flow_override");flow.addProperty("address",toAddr(0x1001).toString());flow.addProperty("bytes","c3");flow.addProperty("old_override","NONE");flow.addProperty("override","BRANCH");changes.add(flow);
    var jump=new JsonObject();jump.addProperty("kind","jump_table");jump.addProperty("address",toAddr(0x1001).toString());jump.addProperty("function",toAddr(0x1000).toString());jump.addProperty("bytes","c3");var targets=new JsonArray();targets.add(toAddr(0x1002).toString());targets.add(toAddr(0x1003).toString());jump.add("targets",targets);changes.add(jump);
-   args.getAsJsonObject("plan").addProperty("id","fixture-repair");args.getAsJsonObject("plan").add("changes",changes);args.addProperty("mode","trial");args.addProperty("directory",root.toString());Files.writeString(root.resolve("repair-args.json"),args.toString());invoke("CampaignRepair.java",args);println("CAMPAIGN_REPAIR_CAPTURE_PASS");return;
+   args.getAsJsonObject("plan").addProperty("id","fixture-repair");args.getAsJsonObject("plan").add("changes",changes);args.addProperty("mode","trial");args.addProperty("directory",root.toString());Files.writeString(root.resolve("repair-args.json"),args.toString());
+   // Exercise the same EDT launch used by GUI MCP, then wait off the EDT.
+   Path output=Path.of(args.get("output").getAsString());Files.deleteIfExists(output);
+   var trialArgs=args;javax.swing.SwingUtilities.invokeAndWait(() -> {try{invoke("CampaignRepair.java",trialArgs);}catch(Exception e){throw new RuntimeException(e);}});
+   long deadline=System.nanoTime()+120_000_000_000L;
+   while(!Files.exists(output)){if(System.nanoTime()>deadline)throw new Exception("Async trial timed out");Thread.sleep(50);}
+   var response=JsonParser.parseString(Files.readString(output)).getAsJsonObject();
+   if(!response.get("complete").getAsBoolean()||!response.get("rolled_back").getAsBoolean())throw new Exception("Async trial failed: "+response);
+   println("CAMPAIGN_REPAIR_ASYNC_PASS");println("CAMPAIGN_REPAIR_CAPTURE_PASS");return;
   }
   if(phase.equals("abi")){
    var changes=new JsonArray();var model=new JsonObject();model.addProperty("kind","compiler_model");model.addProperty("name","__fixture_register");model.addProperty("xml","<prototype name=\"__fixture_register\" extrapop=\"4\" stackshift=\"4\"><input><pentry minsize=\"4\" maxsize=\"4\"><register name=\"EAX\"/></pentry></input><output><pentry minsize=\"4\" maxsize=\"4\"><register name=\"EAX\"/></pentry></output><unaffected><register name=\"EBX\"/><register name=\"ESI\"/><register name=\"EDI\"/><register name=\"EBP\"/></unaffected></prototype>");changes.add(model);

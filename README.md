@@ -652,3 +652,5 @@ fingerprints. Collector upgrades require a fresh scan and plan; retained artifac
 are never rewritten.
 Repair trials allow a longer bounded response wait for their whole-program native
 audit. A timeout still requires reconciliation; see the tool guide for the limits.
+GUI repair analysis runs on a background worker with retained results and bounded
+polling. `campaign self-test` exercises this GUI launch path on its isolated fixture.

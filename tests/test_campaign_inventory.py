@@ -88,8 +88,13 @@ def test_callee_order_is_stable_but_edge_and_parameter_changes_are_visible(tmp_p
     root = tmp_path / "state"
     initialize(root)
     value = fixture_snapshot()
-    value["functions"] = [{"address": "00401000", "callees": ["00403000", "00402000"],
-                           "abi": {"parameters": ["EAX", "EDX"]}}]
+    value["functions"] = [
+        {
+            "address": "00401000",
+            "callees": ["00403000", "00402000"],
+            "abi": {"parameters": ["EAX", "EDX"]},
+        }
+    ]
     monkeypatch.setattr(Client, "script", lambda *a: deepcopy(value))
     client = Client(8089, "/fixture.exe")
     first = scan(root, client)
@@ -144,3 +149,42 @@ def test_repair_gets_full_audit_timeout_and_transport_does_not_retry(monkeypatch
     with pytest.raises(ManagerError, match="reconcile before retrying"):
         client.script("CampaignRepair", {})
     assert requests == [1860, 1860]
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "timeout"])
+def test_scheduled_repair_polls_retained_result_without_resubmission(
+    tmp_path, monkeypatch, outcome
+):
+    import base64
+    import json
+
+    monkeypatch.setattr(Client, "idle", lambda _: None)
+    submissions = []
+    output_paths = []
+
+    def request(self, endpoint, body):
+        submissions.append(endpoint)
+        arguments = json.loads(base64.b64decode(body["args"]))
+        from pathlib import Path
+
+        output_paths.append(Path(arguments["output"]))
+        assert output_paths[-1].parent == tmp_path
+        return {"console_output": "CAMPAIGN_RESULT:scheduled"}
+
+    def sleep(_):
+        if outcome != "timeout":
+            output_paths[0].write_text(json.dumps({"complete": outcome == "success"}))
+
+    ticks = iter([0, 0, 1801])
+    monkeypatch.setattr(Client, "request", request)
+    monkeypatch.setattr("ghidra_manager.campaign.transport.time.sleep", sleep)
+    monkeypatch.setattr("ghidra_manager.campaign.transport.time.monotonic", lambda: next(ticks))
+    client = Client(8089, "/fixture.exe")
+    if outcome == "success":
+        assert client.script("CampaignRepair", {"directory": str(tmp_path)}) == {"complete": True}
+    else:
+        with pytest.raises(ManagerError, match="reconcile before retrying"):
+            client.script("CampaignRepair", {"directory": str(tmp_path)})
+    assert submissions == ["/run_ghidra_script"]
+    if outcome != "timeout":
+        assert output_paths[0].is_file()

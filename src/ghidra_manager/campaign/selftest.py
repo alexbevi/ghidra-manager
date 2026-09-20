@@ -100,6 +100,7 @@ def run(root: Path) -> dict[str, Any]:
             "CAMPAIGN_ABI_PASS",
             "CAMPAIGN_REPAIR_TRIAL_PASS",
             "CAMPAIGN_REPAIR_CAPTURE_PASS",
+            "CAMPAIGN_REPAIR_ASYNC_PASS",
             "CAMPAIGN_REPAIR_APPLIED",
             "CAMPAIGN_REPAIR_STABLE_PASS",
         ]

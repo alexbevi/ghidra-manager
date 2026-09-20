@@ -10,6 +10,44 @@ import com.google.gson.*;
 
 /** Declarative metadata changes. This runner never writes executable bytes. */
 public class CampaignRepair extends GhidraScript {
+    static void publish(Path path, JsonObject result) throws Exception {
+        Path staged = path.resolveSibling(path.getFileName() + ".tmp");
+        Files.writeString(staged, result.toString());
+        Files.move(staged, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    // MCP executes scripts on the EDT. Analysis workers must run off that thread.
+    // Queue after the launching script returns so it owns no worker state.
+    void schedule(JsonObject config) {
+        var source = getSourceFile();
+        var workerState = new ghidra.app.script.GhidraState(state);
+        var arguments = getScriptArgs().clone();
+        var output = Path.of(config.get("output").getAsString());
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            var worker = new Thread(() -> {
+                try (var log = new java.io.PrintWriter(Files.newBufferedWriter(
+                        output.resolveSibling(output.getFileName() + ".log")))) {
+                    try {
+                        var script = ghidra.app.script.GhidraScriptUtil.getProvider(source)
+                            .getScriptInstance(source, log);
+                        script.setScriptArgs(arguments);
+                        script.execute(workerState, new ghidra.util.task.TaskMonitorAdapter(), log);
+                    } catch (Throwable error) {
+                        error.printStackTrace(log);
+                        var result = new JsonObject();
+                        result.addProperty("complete", false);
+                        result.addProperty("error", error.toString());
+                        publish(output, result);
+                    }
+                } catch (Exception error) {
+                    ghidra.util.Msg.error(this, "Campaign repair worker failed; reconcile " + output, error);
+                }
+            }, "GhidraManagerCampaignRepair");
+            worker.start();
+        });
+        println("CAMPAIGN_RESULT:scheduled");
+    }
+
     void invoke(String script, JsonObject args) throws Exception {
         var file = new generic.jar.ResourceFile(getSourceFile().getParentFile(), script);
         var instance = ghidra.app.script.GhidraScriptUtil.getProvider(file)
@@ -101,6 +139,10 @@ public class CampaignRepair extends GhidraScript {
 
     public void run() throws Exception {
         var config = JsonParser.parseString(new String(Base64.getDecoder().decode(getScriptArgs()[0]), StandardCharsets.UTF_8)).getAsJsonObject();
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+            schedule(config);
+            return;
+        }
         var plan = config.getAsJsonObject("plan");
         String id = plan.get("id").getAsString();
         var directory = Path.of(config.get("directory").getAsString());
@@ -160,7 +202,7 @@ public class CampaignRepair extends GhidraScript {
             Files.writeString(directory.resolve(durable ? "apply-finished.json" : "trial-finished.json"), receipt.toString());
         }
         var result = new JsonObject(); result.addProperty("complete", true); result.addProperty("rolled_back", succeeded && !durable); result.addProperty("committed", commit); result.addProperty("transaction", id);
-        Files.writeString(Path.of(config.get("output").getAsString()), result.toString());
+        publish(Path.of(config.get("output").getAsString()), result);
         println("CAMPAIGN_RESULT:complete");
     }
 }

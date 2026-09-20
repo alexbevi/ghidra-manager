@@ -313,3 +313,10 @@ hint and 120-second HTTP wait. These are observation limits: some MCP releases
 ignore the script hint, and a timeout does not cancel or roll back the operation.
 Keep the command running in a monitored terminal session and reconcile any timeout
 before retrying. The manager never retries a timed-out write automatically.
+
+GUI repair scripts queue a worker off Swing's event thread because Ghidra refuses
+analysis there. The manager polls the unique `script-result-*.json` in the batch
+directory for up to 30 minutes after submission. The result and worker error log
+remain available after a client timeout. A scheduled response is not completion;
+rollback and applied-state checks still run before a trial or batch is accepted.
+The isolated self-test exercises this Swing-launch path as well as direct execution.

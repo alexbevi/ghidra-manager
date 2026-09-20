@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import urllib.parse
 import urllib.request
 from importlib.resources import files
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
+from uuid import uuid4
 
 from ghidra_manager.errors import ManagerError
 
@@ -61,6 +63,9 @@ class Client:
         script = files("ghidra_manager.campaign").joinpath(name + ".java")
         with TemporaryDirectory(prefix="ghidra-campaign-") as directory:
             output_path = Path(directory) / "result.json"
+            if name == "CampaignRepair" and "directory" in arguments:
+                # Retain the worker result even if this client exits or times out.
+                output_path = Path(arguments["directory"]) / f"script-result-{uuid4()}.json"
             encoded = base64.b64encode(
                 json.dumps({**arguments, "output": str(output_path)}).encode()
             ).decode()
@@ -74,6 +79,24 @@ class Client:
                 },
             )
             output = response.get("console_output", "") if isinstance(response, dict) else response
+            if (
+                name == "CampaignRepair"
+                and isinstance(output, str)
+                and "CAMPAIGN_RESULT:scheduled" in output
+            ):
+                deadline = time.monotonic() + 1800
+                while not output_path.is_file():
+                    if time.monotonic() >= deadline:
+                        raise ManagerError(
+                            "Repair worker outcome unknown; reconcile before retrying: "
+                            f"{output_path}"
+                        )
+                    time.sleep(0.5)
+                result = json.loads(output_path.read_text())
+                if not isinstance(result, dict) or result.get("complete") is not True:
+                    raise ManagerError(f"Repair worker failed; reconcile before retrying: {result}")
+                self.idle()
+                return result
             if not isinstance(output, str) or "CAMPAIGN_RESULT:complete" not in output:
                 raise ManagerError("Bundled script did not return a complete result")
             if not output_path.is_file():
